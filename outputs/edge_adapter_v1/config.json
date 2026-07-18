@@ -1,0 +1,38 @@
+{
+  "data_root": "/essfs10/daicheng/TT_sim",
+  "output": "outputs/edge_adapter_v1",
+  "adapter_epochs": 6,
+  "refine_epochs": 4,
+  "crop": 384,
+  "seed": 2026,
+  "device": "cuda",
+  "train_scenes": [
+    "adjustable_wrench",
+    "alarm_clock_01",
+    "american_football",
+    "antique_ceramic_vase_01",
+    "armadillo",
+    "bananas",
+    "beast",
+    "beetle",
+    "binoculars",
+    "boombox",
+    "boulder_01",
+    "brass_blowtorch",
+    "bunny",
+    "Camera_01",
+    "carrot_cake",
+    "teapot",
+    "vintage_electric_kettle",
+    "vintage_video_camera",
+    "watering_can_metal_01",
+    "xyzrgb_dragon"
+  ],
+  "valid_scenes": [
+    "carved_wooden_elephant",
+    "CashRegister_01",
+    "cassette_player",
+    "ceramic_pot",
+    "cheburashka"
+  ]
+}
