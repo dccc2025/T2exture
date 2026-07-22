@@ -137,15 +137,19 @@ def _backwarp(image: torch.Tensor, flow: torch.Tensor) -> torch.Tensor:
 
 
 class PassiveGeometryFusion(nn.Module):
-    """Use passive frames only to estimate endpoint geometry and fusion gates."""
+    """Use passive temporal context only to estimate endpoint geometry and fusion gates."""
 
-    def __init__(self, max_displacement: float = 32.0):
+    def __init__(self, max_displacement: float = 32.0, context_radius: int = 1):
         super().__init__()
+        if context_radius < 0:
+            raise ValueError('context_radius must be non-negative')
         self.max_displacement = max_displacement
+        self.context_radius = int(context_radius)
+        self.context_channels = 2 * self.context_radius + 1
         self.register_buffer('sobel_x', torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).view(1, 1, 3, 3))
         self.register_buffer('sobel_y', torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]).view(1, 1, 3, 3))
         self.encoder = nn.Sequential(
-            nn.Conv2d(7, 32, 3, 2, 1), nn.PReLU(32),
+            nn.Conv2d(self.context_channels + 6, 32, 3, 2, 1), nn.PReLU(32),
             nn.Conv2d(32, 48, 3, 1, 1), nn.PReLU(48),
             nn.Conv2d(48, 48, 3, 1, 1), nn.PReLU(48),
         )
@@ -155,12 +159,24 @@ class PassiveGeometryFusion(nn.Module):
         _zero(self.gate_head)
 
     def forward(self, p0: torch.Tensor, p1: torch.Tensor, pt: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        for passive in (p0, p1, pt):
+        for passive in (p0, p1):
             if passive.shape[1] != 1:
-                raise ValueError('PassiveGeometryFusion expects one-channel passive inputs')
-        gx = F.conv2d(pt, self.sobel_x, padding=1)
-        gy = F.conv2d(pt, self.sobel_y, padding=1)
-        features = self.encoder(torch.cat((p0, p1, pt, pt - p0, pt - p1, gx, gy), dim=1))
+                raise ValueError('PassiveGeometryFusion expects one-channel passive endpoints')
+        if pt.shape[1] == 1:
+            context = pt.repeat(1, self.context_channels, 1, 1)
+        elif pt.shape[1] == self.context_channels:
+            context = pt
+        else:
+            raise ValueError(f'PassiveGeometryFusion expects pt with one channel or {self.context_channels} context channels')
+        p_cur = context[:, self.context_radius:self.context_radius + 1]
+        gx = F.conv2d(p_cur, self.sobel_x, padding=1)
+        gy = F.conv2d(p_cur, self.sobel_y, padding=1)
+        features = self.encoder(torch.cat((
+            p0, p1,
+            context,
+            p_cur - p0, p_cur - p1,
+            gx, gy,
+        ), dim=1))
         flow = self.max_displacement * torch.tanh(self.flow_head(features))
         # tanh makes the zero-initialized branch exactly neutral while retaining
         # a non-zero derivative for learning a spatially varying fusion weight.
@@ -171,8 +187,12 @@ class PassiveGeometryFusion(nn.Module):
 class GeometryGatedAMT(nn.Module):
     """Frozen AMT-L plus passive-only endpoint alignment and learned fusion gates."""
 
-    def __init__(self, checkpoint: str | Path | None = None, load_pretrained: bool = True):
+    def __init__(self, checkpoint: str | Path | None = None, load_pretrained: bool = True,
+                 context_radius: int = 1, use_passive: bool = True,
+                 refine_modules: str = 'all'):
         super().__init__()
+        self.use_passive = use_passive
+        self.refine_modules = refine_modules
         module_path = Path(__file__).parent / 'networks' / 'AMT-L.py'
         spec = importlib.util.spec_from_file_location('amt_l_geometry_gated', module_path)
         if spec is None or spec.loader is None:
@@ -185,12 +205,13 @@ class GeometryGatedAMT(nn.Module):
             state = torch.load(checkpoint, map_location='cpu', weights_only=False)['state_dict']
             self.backbone.load_state_dict(state, strict=True)
         self.input_adapter = ThermalInputAdapter()
-        self.geometry = PassiveGeometryFusion()
+        self.geometry = PassiveGeometryFusion(context_radius=context_radius)
         self.set_phase('adapter')
 
     def adapter_parameters(self):
         yield from self.input_adapter.parameters()
-        yield from self.geometry.parameters()
+        if self.use_passive:
+            yield from self.geometry.parameters()
 
     def set_phase(self, phase: str) -> None:
         for parameter in self.backbone.parameters():
@@ -198,16 +219,37 @@ class GeometryGatedAMT(nn.Module):
         for parameter in self.adapter_parameters():
             parameter.requires_grad = True
         if phase == 'refine':
-            for module in (self.backbone.decoder1, self.backbone.decoder2, self.backbone.update2, self.backbone.comb_block):
+            selected = self._refine_modules()
+            for module in selected:
                 for parameter in module.parameters():
                     parameter.requires_grad = True
         elif phase != 'adapter':
             raise ValueError(f'Unknown phase {phase}')
 
+    def _refine_modules(self) -> tuple[nn.Module, ...]:
+        available = {
+            'decoder1': (self.backbone.decoder1,),
+            'decoder2': (self.backbone.decoder2,),
+            'update2': (self.backbone.update2,),
+            'comb': (self.backbone.comb_block,),
+            'decoder12': (self.backbone.decoder1, self.backbone.decoder2),
+            'all': (self.backbone.decoder1, self.backbone.decoder2,
+                    self.backbone.update2, self.backbone.comb_block),
+            'none': (),
+        }
+        modules: list[nn.Module] = []
+        for name in (item.strip() for item in self.refine_modules.split(',') if item.strip()):
+            if name not in available:
+                raise ValueError(f'Unknown refine module {name}; choose from {sorted(available)}')
+            modules.extend(available[name])
+        return tuple(dict.fromkeys(modules))
+
     def forward(self, x0: torch.Tensor, x1: torch.Tensor, time: torch.Tensor,
                 p0: torch.Tensor, p1: torch.Tensor, pt: torch.Tensor) -> torch.Tensor:
         x0_rgb, x1_rgb = self.input_adapter(x0), self.input_adapter(x1)
         base = self.backbone(x0_rgb, x1_rgb, time, eval=True)['imgt_pred']
+        if not self.use_passive:
+            return base
         flow, gates = self.geometry(p0, p1, pt)
         warp0 = _backwarp(x0_rgb, flow[:, :2])
         warp1 = _backwarp(x1_rgb, flow[:, 2:])
