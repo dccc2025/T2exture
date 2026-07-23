@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from config import LossWeights, TrainConfig, passive_context_ids
-from flow_generation import load_pseudo_flow, pseudo_flow_path
+from flow_generation import load_pseudo_flow, missing_pseudo_flow_paths, pseudo_flow_path
 
 
 class TestPublicConfiguration(unittest.TestCase):
@@ -19,10 +19,15 @@ class TestPublicConfiguration(unittest.TestCase):
         """The target passive frame is excluded from a four-frame context."""
         self.assertEqual(passive_context_ids(center_id=10, context_size=4), (8, 9, 11, 12))
 
+    def test_passive_context_can_be_disabled(self) -> None:
+        """No-passive ablations use an empty context instead of special dataset logic."""
+        self.assertEqual(passive_context_ids(center_id=10, context_size=0), ())
+
     def test_train_config_uses_required_defaults(self) -> None:
         """The public defaults preserve the approved two-stage setup."""
         config = TrainConfig()
         self.assertEqual(config.passive_context, 4)
+        self.assertEqual(config.active_stride, 10)
         self.assertEqual(config.adapter_iterations, 10_000)
         self.assertEqual(config.finetune_iterations, 5_000)
 
@@ -46,6 +51,12 @@ class TestPublicConfiguration(unittest.TestCase):
         root = Path('dataset')
         expected = Path('dataset/flow/s05/scene/001_002_006.npz')
         self.assertEqual(pseudo_flow_path(root, 'scene', 1, 2, 6, Path('flow/s05')), expected)
+
+    def test_missing_pseudo_flow_uses_active_stride(self) -> None:
+        """Active-sparsity experiments look for flow files matching their endpoint stride."""
+        root = Path('dataset')
+        missing = missing_pseudo_flow_paths(root, [('scene', 1, 1)], active_stride=5)
+        self.assertEqual(missing, [Path('dataset/flow/s10/scene/001_002_006.npz')])
 
     def test_load_pseudo_flow_concatenates_target_to_endpoint_flows(self) -> None:
         """The flow loader returns AMT's expected [flow_t0, flow_t1] channel layout."""

@@ -1,4 +1,4 @@
-"""AMT-G T2exture wrapper with passive-context conditioning."""
+"""AMT-G T2exture wrapper with optional passive-context conditioning."""
 
 from __future__ import annotations
 
@@ -73,18 +73,18 @@ class PassivePyramidEncoderG(nn.Module):
 
 
 class T2textureAMTG(nn.Module):
-    """Train AMT-G adapters using texture endpoints and passive observations."""
+    """Train AMT-G adapters using texture endpoints and optional passive observations."""
 
     def __init__(self, pretrained: str | Path, passive_context: int = 4) -> None:
         super().__init__()
-        if passive_context <= 0 or passive_context % 2:
-            raise ValueError('passive_context must be a positive even integer')
+        if passive_context < 0 or passive_context % 2:
+            raise ValueError('passive_context must be zero or a positive even integer')
         self.passive_context = passive_context
         self.time_embedding = FourierTimeEmbedding(dim=32)
         self.time_mlp = SharedTimeMLP(input_dim=32, hidden_dim=64)
         self.texture_adapter = TextureAdapter(condition_dim=64)
-        self.passive_encoder = PassivePyramidEncoderG(passive_context, condition_dim=64)
-        self.zero_convs = nn.ModuleList([nn.Conv2d(channels, channels, 1) for channels in (84, 96, 112)])
+        self.passive_encoder = PassivePyramidEncoderG(passive_context, condition_dim=64) if passive_context else None
+        self.zero_convs = nn.ModuleList([nn.Conv2d(channels, channels, 1) for channels in (84, 96, 112)]) if passive_context else nn.ModuleList()
         for layer in self.zero_convs:
             nn.init.zeros_(layer.weight)
             nn.init.zeros_(layer.bias)
@@ -124,13 +124,21 @@ class T2textureAMTG(nn.Module):
             for module in (self.backbone.decoder2, self.backbone.update2_low, self.backbone.update2_high, self.backbone.decoder1, self.backbone.comb_block):
                 for parameter in module.parameters():
                     parameter.requires_grad = True
-        for module in (self.time_embedding, self.time_mlp, self.texture_adapter, self.passive_encoder, self.zero_convs):
+        modules: list[nn.Module] = [self.time_embedding, self.time_mlp, self.texture_adapter, self.zero_convs]
+        if self.passive_encoder is not None:
+            modules.append(self.passive_encoder)
+        for module in modules:
             for parameter in module.parameters():
                 parameter.requires_grad = True
 
     def forward(self, texture0: torch.Tensor, texture1: torch.Tensor, time: torch.Tensor, passive_context: torch.Tensor, return_flow: bool = False) -> dict[str, torch.Tensor | list[torch.Tensor]]:
         condition = self.time_mlp(self.time_embedding(time))
-        self._control = self.passive_encoder(passive_context, condition)
+        if self.passive_encoder is None:
+            if passive_context.shape[1] != 0:
+                raise ValueError(f'Expected no passive frames, got {passive_context.shape[1]}')
+            self._control = None
+        else:
+            self._control = self.passive_encoder(passive_context, condition)
         try:
             output = self.backbone(
                 self.texture_adapter(texture0, condition),

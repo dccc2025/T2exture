@@ -1,4 +1,5 @@
 passive_context: 4
+active_stride: 10
 pseudo_flow_dir: flow/s10
 adapter_iterations: 10000
 finetune_iterations: 5000

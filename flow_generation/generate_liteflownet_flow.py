@@ -112,7 +112,8 @@ def generate_scene(root: Path, output_root: Path, scene: str, estimate, active_s
         texture1 = load_texture(texture_path(root, scene, right_id))
         for offset in range(1, active_stride):
             target_id = left_id + offset
-            if min(passive_context_ids(target_id, context_size)) < 1 or max(passive_context_ids(target_id, context_size)) > 180:
+            context_ids = passive_context_ids(target_id, context_size)
+            if context_ids and (min(context_ids) < 1 or max(context_ids) > 180):
                 skipped += 1
                 continue
             out_path = output_flow_path(output_root, scene, left_id, target_id, right_id)

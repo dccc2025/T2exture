@@ -109,11 +109,13 @@ def main() -> None:
         torch.set_float32_matmul_precision('high')
         torch.backends.cudnn.benchmark = True
     pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
-    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', config['passive_context'], config['crop_size'], True, pseudo_flow_root)
-    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', config['passive_context'], pseudo_flow_root=pseudo_flow_root)
+    passive_context = int(config.get('passive_context', 4))
+    active_stride = int(config.get('active_stride', 10))
+    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride)
+    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride)
     train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, num_workers=config['num_workers']))
     valid_loader = DataLoader(valid_data, batch_size=config['batch_size'], shuffle=False, num_workers=config['num_workers'])
-    model = build_t2texture_model(args.backbone, args.pretrained, config['passive_context']).to(device)
+    model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)
     criterion = CompositeLoss(config.get('loss')).to(device)
     resume_state = load_checkpoint(args.resume, device) if args.resume is not None else None
     if resume_state is not None:

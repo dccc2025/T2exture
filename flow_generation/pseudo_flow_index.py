@@ -84,12 +84,13 @@ def missing_pseudo_flow_paths(
     root: Path,
     samples: list[tuple[str, int, int]],
     pseudo_flow_root: Path | None = None,
+    active_stride: int = 10,
 ) -> list[Path]:
     """Return missing flow-label paths for ``(scene, left_id, target_offset)`` samples."""
     missing = []
     for scene, left_id, offset in samples:
         target_id = left_id + offset
-        right_id = left_id + 10
+        right_id = left_id + active_stride
         candidates = pseudo_flow_candidates(root, scene, left_id, target_id, right_id, pseudo_flow_root)
         if not any(path.is_file() for path in candidates):
             missing.append(candidates[0])
@@ -100,10 +101,11 @@ def validate_pseudo_flow_coverage(
     root: Path,
     samples: list[tuple[str, int, int]],
     pseudo_flow_root: Path | None = None,
+    active_stride: int = 10,
     preview: int = 8,
 ) -> None:
     """Fail early when a split is not covered by the LiteFlowNet flow labels."""
-    missing = missing_pseudo_flow_paths(root, samples, pseudo_flow_root)
+    missing = missing_pseudo_flow_paths(root, samples, pseudo_flow_root, active_stride=active_stride)
     if not missing:
         return
     shown = '\n'.join(str(path) for path in missing[:preview])

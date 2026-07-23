@@ -127,17 +127,20 @@ def main() -> None:
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
+    passive_context = int(config.get('passive_context', 4))
+    active_stride = int(config.get('active_stride', 10))
     dataset = TextureDataset(
         args.data_root,
         args.data_root / f'{args.split}.txt',
-        config['passive_context'],
+        passive_context,
         crop_size=None,
         random_crop=False,
         pseudo_flow_root=pseudo_flow_root,
+        active_stride=active_stride,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size or config['batch_size'], shuffle=False, num_workers=config['num_workers'])
 
-    model = build_t2texture_model(args.backbone, args.pretrained, config['passive_context']).to(device)
+    model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)
     checkpoint = _torch_load(args.checkpoint, device)
     model.load_state_dict(_state_dict(checkpoint), strict=True)
     model.eval()

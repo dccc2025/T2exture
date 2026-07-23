@@ -36,6 +36,7 @@ class TrainConfig:
     """Provide the stable defaults for the two-stage fine-tuning schedule."""
 
     passive_context: int = 4
+    active_stride: int = 10
     adapter_iterations: int = 10_000
     finetune_iterations: int = 5_000
     layerwise_lr_decay: float = 0.8
@@ -43,7 +44,9 @@ class TrainConfig:
 
 def passive_context_ids(center_id: int, context_size: int = 4) -> tuple[int, ...]:
     """Return equal numbers of passive frame IDs before and after ``center_id``."""
-    if context_size <= 0 or context_size % 2:
-        raise ValueError('passive_context must be a positive even integer')
+    if context_size < 0 or context_size % 2:
+        raise ValueError('passive_context must be zero or a positive even integer')
+    if context_size == 0:
+        return ()
     half = context_size // 2
     return tuple(range(center_id - half, center_id)) + tuple(range(center_id + 1, center_id + half + 1))

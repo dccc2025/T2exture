@@ -1,4 +1,4 @@
-"""Dataset loading for AMT-L fine-tuning with four real passive neighbours."""
+"""Dataset loading for AMT fine-tuning with optional passive neighbours."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def _crop(images: list[np.ndarray], crop_size: int | None, random_crop: bool) ->
 
 
 class TextureDataset(Dataset):
-    """Return one interpolated texture target with four passive neighbours and flow labels."""
+    """Return one interpolated texture target with optional passive context and flow labels."""
 
     def __init__(
         self,
@@ -72,23 +72,26 @@ class TextureDataset(Dataset):
         crop_size: int | None = None,
         random_crop: bool = False,
         pseudo_flow_root: Path | None = None,
+        active_stride: int = 10,
     ) -> None:
-        """Build samples from named scenes and fixed ten-frame texture intervals."""
+        """Build samples from named scenes and active-frame intervals."""
+        if active_stride <= 1:
+            raise ValueError('active_stride must be larger than 1 so an interpolation target exists')
         self.root = root
         self.scenes = read_split(split_file)
         self.passive_context = passive_context
+        self.active_stride = active_stride
         self.crop_size = crop_size
         self.random_crop = random_crop
         self.pseudo_flow_root = pseudo_flow_root
         self.items = [
             (scene, left, offset)
             for scene in self.scenes
-            for left in range(1, 171, 10)
-            for offset in range(1, 10)
-            if 1 <= left + offset - passive_context // 2
-            and left + offset + passive_context // 2 <= 180
+            for left in range(1, 181 - active_stride, active_stride)
+            for offset in range(1, active_stride)
+            if _has_valid_passive_context(left + offset, passive_context)
         ]
-        validate_pseudo_flow_coverage(self.root, self.items, self.pseudo_flow_root)
+        validate_pseudo_flow_coverage(self.root, self.items, self.pseudo_flow_root, active_stride=self.active_stride)
 
     def __len__(self) -> int:
         """Return the number of valid interval-target samples."""
@@ -98,7 +101,7 @@ class TextureDataset(Dataset):
         """Load texture endpoints, a target, four passive neighbours, and target flow labels."""
         scene, left, offset = self.items[index]
         target_id = left + offset
-        right = left + 10
+        right = left + self.active_stride
         context_ids = passive_context_ids(target_id, self.passive_context)
         texture0 = _normalise(_load_frame(self.root, scene, 'texture', left))
         texture1 = _normalise(_load_frame(self.root, scene, 'texture', right))
@@ -108,6 +111,10 @@ class TextureDataset(Dataset):
         texture0, texture1, target, *rest = _crop([texture0, texture1, target, *passive, flow], self.crop_size, self.random_crop)
         passive, flow = rest[:-1], rest[-1]
         tensor = lambda image: torch.from_numpy(image.copy()).unsqueeze(0)
+        if passive:
+            passive_tensor = torch.stack([torch.from_numpy(image.copy()) for image in passive])
+        else:
+            passive_tensor = torch.empty((0, target.shape[-2], target.shape[-1]), dtype=torch.float32)
         return {
             'scene': scene,
             'left_id': left,
@@ -116,7 +123,13 @@ class TextureDataset(Dataset):
             'texture0': tensor(texture0),
             'texture1': tensor(texture1),
             'target': tensor(target),
-            'passive_context': torch.stack([torch.from_numpy(image.copy()) for image in passive]),
+            'passive_context': passive_tensor,
             'flow': torch.from_numpy(flow.copy()),
-            'time': torch.tensor([offset / 10.0], dtype=torch.float32),
+            'time': torch.tensor([offset / float(self.active_stride)], dtype=torch.float32),
         }
+
+
+def _has_valid_passive_context(target_id: int, passive_context: int) -> bool:
+    """Return whether all requested passive context frames exist in the 1..180 sequence."""
+    context_ids = passive_context_ids(target_id, passive_context)
+    return not context_ids or (min(context_ids) >= 1 and max(context_ids) <= 180)
