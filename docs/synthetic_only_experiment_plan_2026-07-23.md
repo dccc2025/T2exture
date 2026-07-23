@@ -208,10 +208,11 @@ outputs/final/<table_id>/<exp_id>/
 
 ### ROI 数据集状态
 
-- `dataset_roi` 尚未生成。
-- 需要先写 ROI preview / manifest，再由人工确认裁剪范围。
-- 确认后再批量生成 `dataset_roi`。
-- `dataset_roi/flow/s10` 不需要重新跑 LiteFlowNet；从已有 `dataset/flow/s10` 同步裁剪即可。
+- `dataset_roi` 已生成，固定输出尺寸为 `640 H x 960 W`。
+- `dataset_roi/train.txt`, `dataset_roi/valid.txt`, `dataset_roi/test.txt` 已规范化为无缩进、无 BOM 的 scene 列表，split 仍为 20 / 4 / 8。
+- `dataset_roi/roi_manifest.json` 和 `dataset_roi/roi_preview/<scene>.png` 已生成，可用于后续人工抽查 ROI。
+- `dataset_roi/flow/s10` 已由已有 `dataset/flow/s10` 同步裁剪得到，不需要重新跑 LiteFlowNet。
+- 当前覆盖检查通过：train 3040 samples，valid 608 samples，test 1216 samples；texture / passive / flow shape 均为 `640 x 960`。
 - 不覆盖原始 `dataset/flow/s10` 全分辨率缓存；它保留为 source，正式训练读取裁剪后的 `dataset_roi/flow/s10`。
 - 初步只读统计显示，33 个 scene 中最大 union bbox 高度约 599 px，最大宽度可能接近 1024 px，因此不能直接盲目裁成很小尺寸。
 - 输出尺寸必须先通过 preview 决定，目标是目标物体完整运动轨迹保留在画面中，且所有 scene 空间分辨率一致。
@@ -256,7 +257,7 @@ outputs/final/<table_id>/<exp_id>/
 
 1. Baseline wrapper / runner
    - IFRNet wrapper 需要补完整评估入口，使用 `pretrained/IFRNet.pth`。
-   - GIMM-VFI-F 官方代码源已确定为 `https://github.com/GSeanCDAT/GIMM-VFI`。
+   - GIMM-VFI-F 官方代码已下载到 `third_party/GIMM-VFI`，代码源为 `https://github.com/GSeanCDAT/GIMM-VFI`。
    - GIMM-VFI-F wrapper 需要补完整评估入口，使用 `flowformer_sintel.pth`, `gimm.pt`, `gimmvfi_f_arb.pt`。
    - SGM-VFI / BiM-VFI / AMT-L vanilla 需要统一到同一套 test split、指标和 artifact contract。
    - InterpAny / LDF-VFI / EDEN 不再补 wrapper，不跑正式表。
@@ -319,7 +320,7 @@ outputs/final/<table_id>/<exp_id>/
 | IFRNet | 权重已存在，wrapper / eval runner 未完成 |
 | SGM-VFI | 需要重评到新 split 和新指标 |
 | BiM-VFI | 需要重评到新 split 和新指标 |
-| GIMM-VFI-F | 官方 repo 已确定，权重已存在，代码下载 / wrapper / eval runner 未完成 |
+| GIMM-VFI-F | 官方 repo 已下载，权重已存在，wrapper / eval runner 未完成 |
 | AMT-L vanilla | 需要重评到新 split 和新指标 |
 | Ours-L | 需要按 `dataset_roi` 正式配置重训 / 重评 |
 
@@ -394,7 +395,7 @@ outputs/final/<table_id>/<exp_id>/
 | 7 | `flow/s07` | 未生成 |
 | 8 | `flow/s08` | 未生成 |
 | 9 | `flow/s09` | 未生成 |
-| 10 | `flow/s10` | source 已有；ROI 待裁剪生成 |
+| 10 | `flow/s10` | ROI 已由 source 裁剪生成，覆盖检查通过 |
 | 11 | `flow/s11` | 未生成 |
 
 生成命令模板：
@@ -444,10 +445,10 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 
 第一阶段先跑能支撑主结论的实验：
 
-1. 写 ROI preview / manifest 脚本，只读分析 `dataset/sim`，为每个 scene 生成固定 crop box。
-2. 输出 `roi_preview/<scene>.png` 和 `roi_manifest.json`，人工确认目标物体完整运动轨迹没有被裁掉。
-3. 确认后生成 `dataset_roi`：复制 20 / 4 / 8 split，同步裁剪 texture / passive，并从 `dataset/flow/s10` 裁剪得到 `dataset_roi/flow/s10`。
-4. 验证 `dataset_roi`：所有 scene 尺寸一致，train/valid/test sample 数一致，`flow/s10` 覆盖完整。
+1. [done] 写 ROI preview / manifest 脚本，只读分析 `dataset/sim`，为每个 scene 生成固定 crop box。
+2. [done] 输出 `roi_preview/<scene>.png` 和 `roi_manifest.json`，后续可继续人工抽查关键 scene。
+3. [done] 生成 `dataset_roi`：复制 20 / 4 / 8 split，同步裁剪 texture / passive，并从 `dataset/flow/s10` 裁剪得到 `dataset_roi/flow/s10`。
+4. [done] 验证 `dataset_roi`：所有 scene 尺寸一致，train/valid/test sample 数一致，`flow/s10` 覆盖完整。
 5. 将正式训练配置切换为 `crop_size: 384`，所有正式命令使用 `--data-root dataset_roi`；验证/测试保持完整 `640x960` ROI。
 6. 跑 smoke：确认 AMT-S/L/G wrapper、train/eval/vis 入口都能在 `dataset_roi` 上正常工作。
 7. 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
@@ -455,7 +456,7 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 9. 评估 Ours-L，导出 `pred/err/metrics/vis`。
 10. 补 IFRNet wrapper 并跑表 1。
 11. 重评 SGM-VFI 和 BiM-VFI 到新 split / 新指标。
-12. 从 `https://github.com/GSeanCDAT/GIMM-VFI` 下载 GIMM-VFI 官方代码到 `third_party/GIMM-VFI`，补 GIMM-VFI-F wrapper 并跑表 1。
+12. [code downloaded] `third_party/GIMM-VFI` 已存在；仍需补 GIMM-VFI-F wrapper 并跑表 1。
 
 第二阶段跑模型规模消融和部署表：
 
