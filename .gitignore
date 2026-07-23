@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+outputs/
+dataset/
+dataset_roi/
+pretrained/
+third_party/
+third_party_baselines/
+.vscode/
