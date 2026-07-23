@@ -40,6 +40,30 @@ class CharbonnierLoss(Loss):
         return loss
 
 
+class CompositeLoss(nn.Module):
+    """Combine the fixed Charbonnier, census-style CSS, and multiple-flow losses."""
+
+    def __init__(self) -> None:
+        """Create the three approved objectives with their fixed coefficients."""
+        super().__init__()
+        self.weights = {'charbonnier': 1.0, 'css': 0.1, 'flow': 0.001}
+        self.charbonnier = CharbonnierLoss(self.weights['charbonnier'], ['imgt_pred', 'imgt'])
+        self.css = TernaryLoss(self.weights['css'], ['imgt_pred', 'imgt'])
+        self.flow = MultipleFlowLoss(self.weights['flow'], ['flow0_pred', 'flow1_pred', 'flow'])
+
+    def forward(self, imgt_pred, imgt, flow0_pred, flow1_pred, flow):
+        """Return the weighted total and named weighted terms for logging."""
+        charbonnier = self.charbonnier(imgt_pred=imgt_pred, imgt=imgt)
+        css = self.css(imgt_pred=imgt_pred, imgt=imgt)
+        flow_loss = self.flow(flow0_pred=flow0_pred, flow1_pred=flow1_pred, flow=flow)
+        return {
+            'total': charbonnier + css + flow_loss,
+            'charbonnier': charbonnier,
+            'css': css,
+            'flow': flow_loss,
+        }
+
+
 class AdaCharbonnierLoss(Loss):
     def __init__(self, loss_weight, keys) -> None:
         super().__init__(loss_weight, keys)
