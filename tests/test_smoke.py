@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config import LossWeights, TrainConfig, passive_context_ids
+from config import LossWeights, TrainConfig, expected_flow_set, passive_context_ids, resolve_sample_passive_context, validate_runtime_config
 from flow_generation import load_pseudo_flow, missing_pseudo_flow_paths, pseudo_flow_path
 
 
@@ -28,8 +28,28 @@ class TestPublicConfiguration(unittest.TestCase):
         config = TrainConfig()
         self.assertEqual(config.passive_context, 4)
         self.assertEqual(config.active_stride, 10)
+        self.assertIsNone(config.sample_passive_context)
+        self.assertTrue(config.require_dataset_roi)
         self.assertEqual(config.adapter_iterations, 10_000)
         self.assertEqual(config.finetune_iterations, 5_000)
+
+    def test_expected_flow_set_matches_active_stride(self) -> None:
+        """The flow-set naming convention prevents s05/s10 mixups."""
+        self.assertEqual(expected_flow_set(5), 's05')
+
+    def test_sample_passive_context_keeps_table3_window_fixed(self) -> None:
+        """Table 3 can filter every row with the same largest passive window."""
+        self.assertEqual(resolve_sample_passive_context({'sample_passive_context': 10}, passive_context=0), 10)
+
+    def test_formal_runs_require_dataset_roi(self) -> None:
+        """Formal configs fail early when a command accidentally points at dataset."""
+        with self.assertRaises(ValueError):
+            validate_runtime_config({'require_dataset_roi': True}, Path('dataset'))
+
+    def test_flow_set_must_match_active_stride(self) -> None:
+        """Active-sparsity configs fail before launching a mismatched long run."""
+        with self.assertRaises(ValueError):
+            validate_runtime_config({'require_dataset_roi': False, 'active_stride': 5, 'pseudo_flow_dir': 'flow/s10'}, Path('dataset'))
 
     def test_loss_weights_are_fixed(self) -> None:
         """The three supervised objectives have the requested coefficients."""

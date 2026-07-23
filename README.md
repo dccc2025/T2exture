@@ -1,23 +1,31 @@
 # T2exture
 
-AMT fine-tuning for texture-frame interpolation using active texture endpoints and passive-frame context.
+AMT-based texture-frame interpolation for the synthetic Active-HADAR dataset.
 
-## Dataset Layout
+## Formal Data Root
 
-The runnable synthetic dataset should be scene-centric:
+Formal experiments must use `dataset_roi` as `--data-root`.
 
 ```text
-DATA_ROOT/
+dataset_roi/
   train.txt
   valid.txt
   test.txt
+  roi_manifest.json
   sim/SCENE/
     texture/001.npy
     passive/001.npy
-    flow/001_002_011.npz
+  flow/s10/SCENE/001_002_011.npz
 ```
 
-`texture` and `passive` frames are grayscale `H x W` arrays. `flow` stores LiteFlowNet pseudo labels following AMT's target-to-endpoint convention:
+Raw full-frame data under `dataset/` is treated as a source cache only. New
+pseudo-flow labels should follow the AMT-style derived-data layout:
+
+```text
+DATA_ROOT/flow/sXX/SCENE/LEFT_TARGET_RIGHT.npz
+```
+
+Each flow file stores:
 
 ```text
 flow0: [2, H, W] target-to-left-endpoint flow
@@ -28,36 +36,45 @@ Training concatenates them as `[4, H, W]` for AMT's `MultipleFlowLoss`.
 
 ## Training
 
-```bash
-bash scripts/train.sh DATA_ROOT pretrained/amt-l.pth outputs/runs/experiment_01
+Windows PowerShell:
+
+```powershell
+conda run -n gflow python -B train.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --output-dir outputs/final/table01_prior/ours-l --config train.yaml
 ```
 
-`train.yaml` is the default recipe. It sets crop size, iteration schedule, learning rates, layer-wise LR decay, validation interval, and loss weights.
+`train.yaml` is the default formal recipe. It requires `dataset_roi` by default,
+uses `active_stride: 10`, and writes checkpoints plus `config.json` under the
+chosen output directory.
+
+For local debugging on a non-ROI root, use a separate config with:
+
+```yaml
+require_dataset_roi: false
+```
+
+## Evaluation And Visualization
+
+```powershell
+conda run -n gflow python -B eval.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --checkpoint outputs/final/table01_prior/ours-l/best.pt --split test --output-dir outputs/final/table01_prior/ours-l/test --config train.yaml
+conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
+```
+
+Evaluation writes `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, and
+`manifest.json`. Visualization writes `vis/png/` and `vis/video/`.
 
 ## Flow Labels
 
-If a legacy cache exists under `DATA_ROOT/pseudo_flow/liteflownet_default_train_valid`, link it into the scene layout without duplicating storage:
+Generate LiteFlowNet pseudo-flow labels for a stride-specific flow set:
 
-```bash
-python -m flow_generation.link_legacy_pseudo_flow --data-root DATA_ROOT
+```powershell
+conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride 5 --splits train valid test --device cuda
 ```
 
-Generate missing LiteFlowNet labels with:
-
-```bash
-python -m flow_generation.generate_liteflownet_flow --data-root DATA_ROOT --splits train valid test
-```
-
-The generator mirrors AMT's target-to-endpoint flow convention but writes the T2exture scene-centric npz layout.
+When `--flow-set` is omitted, the generator writes to `flow/sXX` based on
+`--active-stride`, for example `active_stride=5` writes `flow/s05`.
 
 ## Tests
 
-```bash
-python -m unittest tests.test_smoke -v
-```
-
-Use the training environment for metric tests:
-
-```bash
-conda run -n gflow python -m unittest tests.test_smoke -v
+```powershell
+python -B -m pytest tests/test_smoke.py -q -p no:cacheprovider
 ```

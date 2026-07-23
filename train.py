@@ -13,6 +13,7 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
+from config import resolve_sample_passive_context, validate_runtime_config
 from data import TextureDataset
 from losses.loss import CompositeLoss
 from metrics import batch_psnr
@@ -101,6 +102,7 @@ def main() -> None:
     """Run adapter-only training followed by whole-model layerwise fine-tuning."""
     args = parse_args()
     config = yaml.safe_load(args.config.read_text())
+    validate_runtime_config(config, args.data_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
     seed_everything(int(config['seed']))
@@ -111,8 +113,9 @@ def main() -> None:
     pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
     passive_context = int(config.get('passive_context', 4))
     active_stride = int(config.get('active_stride', 10))
-    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride)
-    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride)
+    sample_passive_context = resolve_sample_passive_context(config, passive_context)
+    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride, sample_passive_context)
+    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride, sample_passive_context=sample_passive_context)
     train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, num_workers=config['num_workers']))
     valid_loader = DataLoader(valid_data, batch_size=config['batch_size'], shuffle=False, num_workers=config['num_workers'])
     model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)

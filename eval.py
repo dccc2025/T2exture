@@ -16,6 +16,7 @@ import yaml
 from PIL import Image
 from torch.utils.data import DataLoader
 
+from config import resolve_sample_passive_context, validate_runtime_config
 from data import TextureDataset
 from metrics import MAIN_METRIC_KEYS, compute_main_metrics
 from model import build_t2texture_model
@@ -123,12 +124,14 @@ def main() -> None:
     """Run evaluation and write frame, scene, and overall metric artifacts."""
     args = parse_args()
     config = yaml.safe_load(args.config.read_text())
+    validate_runtime_config(config, args.data_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
     passive_context = int(config.get('passive_context', 4))
     active_stride = int(config.get('active_stride', 10))
+    sample_passive_context = resolve_sample_passive_context(config, passive_context)
     dataset = TextureDataset(
         args.data_root,
         args.data_root / f'{args.split}.txt',
@@ -137,6 +140,7 @@ def main() -> None:
         random_crop=False,
         pseudo_flow_root=pseudo_flow_root,
         active_stride=active_stride,
+        sample_passive_context=sample_passive_context,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size or config['batch_size'], shuffle=False, num_workers=config['num_workers'])
 

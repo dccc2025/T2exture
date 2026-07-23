@@ -17,15 +17,15 @@ from types import ModuleType
 import numpy as np
 import torch
 
-from config import passive_context_ids
-from flow_generation import DEFAULT_FLOW_SET, flow_file_name, resolve_pseudo_flow_root
+from config import expected_flow_set, passive_context_ids
+from flow_generation import flow_file_name, resolve_pseudo_flow_root
 
 
 def parse_args() -> argparse.Namespace:
     """Read dataset and split inputs for pseudo-flow generation."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--data-root', type=Path, required=True)
-    parser.add_argument('--flow-set', default=DEFAULT_FLOW_SET, help='Pseudo-flow set name under DATA_ROOT/flow.')
+    parser.add_argument('--flow-set', default=None, help='Pseudo-flow set name under DATA_ROOT/flow. Defaults to sXX from --active-stride.')
     parser.add_argument('--output-dir', type=Path, default=None, help='Explicit pseudo-flow root. Overrides --flow-set.')
     parser.add_argument('--splits', nargs='+', default=['train', 'valid'])
     parser.add_argument('--active-stride', type=int, default=10)
@@ -134,7 +134,8 @@ def main() -> None:
     args = parse_args()
     if args.device == 'cuda' and not torch.cuda.is_available():
         raise RuntimeError('LiteFlowNet generation requested CUDA, but CUDA is not available')
-    output_root = resolve_pseudo_flow_root(args.data_root, args.output_dir or Path('flow') / args.flow_set)
+    flow_set = args.flow_set or expected_flow_set(args.active_stride)
+    output_root = resolve_pseudo_flow_root(args.data_root, args.output_dir or Path('flow') / flow_set)
     liteflownet = load_liteflownet(args.liteflownet)
     scenes = []
     for split in args.splits:
@@ -151,7 +152,7 @@ def main() -> None:
         'source': 'LiteFlowNet via third_party/AMT_official/flow_generation/liteflownet',
         'data_root': str(args.data_root),
         'output_root': str(output_root),
-        'flow_set': args.flow_set,
+        'flow_set': flow_set,
         'splits': args.splits,
         'scenes': scenes,
         'active_stride': args.active_stride,

@@ -4,7 +4,7 @@ T2exture follows AMT's storage pattern: raw frames and pseudo-flow caches are
 kept separate.
 
 ```text
-dataset/
+dataset_roi/
   sim/<scene>/texture/*.npy
   sim/<scene>/passive/*.npy
   flow/<flow_set>/<scene>/<left>_<target>_<right>.npz
@@ -21,14 +21,18 @@ frames apart.
 Generate the default set:
 
 ```powershell
-conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset --flow-set s10 --active-stride 10 --splits train valid test --device cuda
+conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride 10 --splits train valid test --device cuda
 ```
 
 Generate another active-sparsity set:
 
 ```powershell
-conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset --flow-set s05 --active-stride 5 --splits train valid test --device cuda
+conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride 5 --splits train valid test --device cuda
 ```
 
-Legacy `dataset/sim/<scene>/flow/*.npz` files are still readable for the default
-`s10` set, but new generated caches should go under `dataset/flow/<flow_set>`.
+When `--flow-set` is omitted, the generator writes to `flow/sXX` based on
+`--active-stride`, for example `active_stride=5` writes `flow/s05`.
+
+Legacy `dataset/sim/<scene>/flow/*.npz` files are still readable for source
+inspection only. Formal runs should read cropped caches from
+`dataset_roi/flow/<flow_set>`.

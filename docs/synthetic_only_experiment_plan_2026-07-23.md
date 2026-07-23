@@ -3,7 +3,7 @@
 ## 0. 当前边界
 
 - 当前阶段只做 synthetic 数据集实验，不做 real transfer / real finetune。
-- 论文主表、消融表、部署表统一使用 scene-disjoint split：`dataset/train.txt`, `dataset/valid.txt`, `dataset/test.txt`。
+- 论文主表、消融表、部署表统一使用 scene-disjoint split；正式运行时 split 文件位于 `dataset_roi/train.txt`, `dataset_roi/valid.txt`, `dataset_roi/test.txt`。
 - 当前 split 已落地：train / valid / test = 20 / 4 / 8 scenes。
 - `binoculars` 因 ROI 统计中横向运动轨迹异常接近全宽而从正式 split 中剔除；`bunny` 已从 valid 挪到 train，保持 train 为 20 scenes。
 - 后续正式实验切换到 `dataset_roi`：原始 `dataset` 只作为 source root，`dataset_roi` 作为唯一正式 `--data-root`。
@@ -88,6 +88,9 @@ L = 1.0 * L_charbonnier + 0.1 * L_css + 0.001 * L_flow
 
 ```yaml
 passive_context: 4
+active_stride: 10
+sample_passive_context:
+require_dataset_roi: true
 pseudo_flow_dir: flow/s10
 adapter_iterations: 10000
 finetune_iterations: 5000
@@ -201,7 +204,7 @@ outputs/final/<table_id>/<exp_id>/
   - `torch.set_float32_matmul_precision('high')`
   - `torch.backends.cudnn.benchmark = True`
 - `train.yaml` 已写入默认 `pseudo_flow_dir: flow/s10`。
-- 当前 `train.yaml` 仍需在 `dataset_roi` 确认后改为最终训练 crop：`384`；验证/测试不 crop，使用完整 `640x960` ROI。
+- 当前 `train.yaml` 已写入正式训练 crop：`384`，并通过 `require_dataset_roi: true` 防止正式训练误用原始 `dataset`；验证/测试不 crop，使用完整 `640x960` ROI。
 
 ### ROI 数据集状态
 
@@ -264,15 +267,14 @@ outputs/final/<table_id>/<exp_id>/
    - 参数量统计口径需要和 T2exture wrapper 区分：`official backbone params` vs `T2exture total params`。
 
 3. Passive context ablation
-   - 当前默认代码支持 positive even `passive_context`。
-   - `passive_context=0` 的 no-passive path 还需要单独实现。
-   - 表 3 需要支持 total passive refs 为 `0 / 2 / 4 / 6 / 8 / 10`。
+   - 代码已支持 `passive_context=0 / 2 / 4 / 6 / 8 / 10`。
+   - 表 3 正式配置建议所有行统一设置 `sample_passive_context: 10`，保证 no-passive 和多 passive 行使用同一 target-frame 评估窗口。
+   - 仍需为每一行生成独立 config / output 目录，并重训重评。
 
 4. Active frame sparsity ablation
-   - `TextureDataset` 目前固定 `active_stride=10`。
-   - 需要把 `active_stride` 参数化，并让 `time = offset / active_stride`。
+   - `TextureDataset` / `train.py` / `eval.py` 已支持配置化 `active_stride`，并使用 `time = offset / active_stride`。
    - 每个 stride 如果保留 `L_flow`，都需要对应 `dataset_roi/flow/sXX` pseudo-flow set。
-   - `generate_liteflownet_flow.py` 已有 `--active-stride` 和 `--flow-set`，但 dataset/train/eval 还未接入 variable stride。
+   - `generate_liteflownet_flow.py` 已支持 `--active-stride`；未显式传 `--flow-set` 时会自动写入对应 `flow/sXX`。
 
 5. Ablation switches
    - 当前不实现 `w/o L_flow`；主 loss 先固定为 `L_char + 0.1 L_css + 0.001 L_flow`。

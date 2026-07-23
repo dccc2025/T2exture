@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from pathlib import Path
+import re
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,8 @@ class TrainConfig:
 
     passive_context: int = 4
     active_stride: int = 10
+    sample_passive_context: int | None = None
+    require_dataset_roi: bool = True
     adapter_iterations: int = 10_000
     finetune_iterations: int = 5_000
     layerwise_lr_decay: float = 0.8
@@ -50,3 +54,33 @@ def passive_context_ids(center_id: int, context_size: int = 4) -> tuple[int, ...
         return ()
     half = context_size // 2
     return tuple(range(center_id - half, center_id)) + tuple(range(center_id + 1, center_id + half + 1))
+
+
+def expected_flow_set(active_stride: int) -> str:
+    """Return the canonical pseudo-flow set name for one active-anchor stride."""
+    if active_stride <= 1:
+        raise ValueError('active_stride must be larger than 1 so an interpolation target exists')
+    return f's{active_stride:02d}'
+
+
+def resolve_sample_passive_context(config: Mapping[str, Any], passive_context: int) -> int:
+    """Return the context size used only for sample-window filtering."""
+    value = config.get('sample_passive_context')
+    sample_context = passive_context if value is None else int(value)
+    if sample_context < passive_context:
+        raise ValueError('sample_passive_context must be greater than or equal to passive_context')
+    passive_context_ids(center_id=10, context_size=sample_context)
+    return sample_context
+
+
+def validate_runtime_config(config: Mapping[str, Any], data_root: Path) -> None:
+    """Fail early on formal-run settings that would silently mix protocols."""
+    if bool(config.get('require_dataset_roi', True)) and data_root.resolve().name != 'dataset_roi':
+        raise ValueError('Formal runs require --data-root dataset_roi. Set require_dataset_roi: false only for debugging.')
+    active_stride = int(config.get('active_stride', 10))
+    flow_dir = config.get('pseudo_flow_dir')
+    if not flow_dir:
+        return
+    flow_set = Path(str(flow_dir)).name
+    if re.fullmatch(r's\d+', flow_set) and flow_set != expected_flow_set(active_stride):
+        raise ValueError(f'pseudo_flow_dir={flow_dir!r} does not match active_stride={active_stride}; expected flow/{expected_flow_set(active_stride)}')

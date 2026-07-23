@@ -1,0 +1,123 @@
+# ASCII runbook for Windows/Codex execution.
+# The Chinese manuscript-facing plan remains in synthetic_only_experiment_plan_2026-07-23.md.
+
+workspace: D:/HADAR/T2exture
+environment: gflow
+formal_data_root: dataset_roi
+source_data_root: dataset
+outputs_root: outputs/final
+default_config: train.yaml
+
+global_rules:
+  - use_dataset_roi_for_formal_runs
+  - do_not_write_generated_flow_under_sim_scene
+  - do_not_overwrite_dataset_flow_s10
+  - keep_full_eval_artifacts
+  - run_one_heavy_gpu_training_job_at_a_time
+  - stop_on_metric_or_visual_abnormality
+
+default_protocol:
+  active_stride: 10
+  passive_context: 4
+  sample_passive_context: null
+  pseudo_flow_dir: flow/s10
+  crop_size: 384
+  adapter_iterations: 10000
+  finetune_iterations: 5000
+  batch_size: 1
+  valid_interval: 500
+  loss:
+    charbonnier: 1.0
+    css: 0.1
+    flow: 0.001
+
+preflight:
+  required_paths:
+    - dataset_roi/train.txt
+    - dataset_roi/valid.txt
+    - dataset_roi/test.txt
+    - dataset_roi/sim
+    - dataset_roi/flow/s10
+    - pretrained/amt-s.pth
+    - pretrained/amt-l.pth
+    - pretrained/amt-g.pth
+    - pretrained/IFRNet.pth
+    - pretrained/flowformer_sintel.pth
+    - pretrained/gimm.pt
+    - pretrained/gimmvfi_f_arb.pt
+    - third_party/AMT_official
+    - third_party/IFRNet
+    - third_party/SGM-VFI
+    - third_party/BiM-VFI
+  currently_missing_expected:
+    - dataset_roi
+    - third_party/GIMM-VFI
+  smoke_command: python -B -m pytest tests/test_smoke.py -q -p no:cacheprovider
+
+commands:
+  train_ours_l: conda run -n gflow python -B train.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --output-dir outputs/final/table01_prior/ours-l --config train.yaml
+  eval_ours_l: conda run -n gflow python -B eval.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --checkpoint outputs/final/table01_prior/ours-l/best.pt --split test --output-dir outputs/final/table01_prior/ours-l/test --config train.yaml
+  vis_ours_l: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
+  generate_flow_stride_template: conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride STRIDE --splits train valid test --device cuda
+
+table03_passive_context:
+  note: Set sample_passive_context to 10 for every row so all rows use the same target-frame window.
+  rows:
+    - exp_id: table03_passive_context/passive-refs-00
+      passive_context: 0
+      sample_passive_context: 10
+    - exp_id: table03_passive_context/passive-refs-02
+      passive_context: 2
+      sample_passive_context: 10
+    - exp_id: table03_passive_context/passive-refs-04
+      passive_context: 4
+      sample_passive_context: 10
+    - exp_id: table03_passive_context/passive-refs-06
+      passive_context: 6
+      sample_passive_context: 10
+    - exp_id: table03_passive_context/passive-refs-08
+      passive_context: 8
+      sample_passive_context: 10
+    - exp_id: table03_passive_context/passive-refs-10
+      passive_context: 10
+      sample_passive_context: 10
+
+table04_active_sparsity:
+  note: Keep passive_context fixed at 4 and change only active_stride plus pseudo_flow_dir.
+  rows:
+    - active_stride: 2
+      pseudo_flow_dir: flow/s02
+    - active_stride: 3
+      pseudo_flow_dir: flow/s03
+    - active_stride: 4
+      pseudo_flow_dir: flow/s04
+    - active_stride: 5
+      pseudo_flow_dir: flow/s05
+    - active_stride: 6
+      pseudo_flow_dir: flow/s06
+    - active_stride: 7
+      pseudo_flow_dir: flow/s07
+    - active_stride: 8
+      pseudo_flow_dir: flow/s08
+    - active_stride: 9
+      pseudo_flow_dir: flow/s09
+    - active_stride: 10
+      pseudo_flow_dir: flow/s10
+    - active_stride: 11
+      pseudo_flow_dir: flow/s11
+
+artifact_contract:
+  train_outputs:
+    - best.pt
+    - last.pt
+    - config.json
+  eval_outputs:
+    - pred/
+    - err/
+    - metrics.json
+    - scene.csv
+    - frame.csv
+    - manifest.json
+  vis_outputs:
+    - vis/png/
+    - vis/video/

@@ -73,13 +73,18 @@ class TextureDataset(Dataset):
         random_crop: bool = False,
         pseudo_flow_root: Path | None = None,
         active_stride: int = 10,
+        sample_passive_context: int | None = None,
     ) -> None:
         """Build samples from named scenes and active-frame intervals."""
         if active_stride <= 1:
             raise ValueError('active_stride must be larger than 1 so an interpolation target exists')
+        sample_context = passive_context if sample_passive_context is None else sample_passive_context
+        if sample_context < passive_context:
+            raise ValueError('sample_passive_context must be greater than or equal to passive_context')
         self.root = root
         self.scenes = read_split(split_file)
         self.passive_context = passive_context
+        self.sample_passive_context = sample_context
         self.active_stride = active_stride
         self.crop_size = crop_size
         self.random_crop = random_crop
@@ -89,7 +94,7 @@ class TextureDataset(Dataset):
             for scene in self.scenes
             for left in range(1, 181 - active_stride, active_stride)
             for offset in range(1, active_stride)
-            if _has_valid_passive_context(left + offset, passive_context)
+            if _has_valid_passive_context(left + offset, self.sample_passive_context)
         ]
         validate_pseudo_flow_coverage(self.root, self.items, self.pseudo_flow_root, active_stride=self.active_stride)
 
