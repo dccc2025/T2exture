@@ -36,6 +36,8 @@ preflight:
     - dataset_roi/train.txt
     - dataset_roi/valid.txt
     - dataset_roi/test.txt
+    - dataset_roi/roi_manifest.json
+    - dataset_roi/roi_preview
     - dataset_roi/sim
     - dataset_roi/flow/s10
     - pretrained/amt-s.pth
@@ -51,6 +53,25 @@ preflight:
     - third_party/BiM-VFI
     - third_party/GIMM-VFI
   currently_missing_expected: []
+  expected_split_counts:
+    train: 20
+    valid: 4
+    test: 8
+  expected_sample_counts:
+    train: 3040
+    valid: 608
+    test: 1216
+  expected_roi_shape_hw:
+    - 640
+    - 960
+  expected_roi_scene_count: 32
+  expected_s10_flow_files: 4892
+  expected_roi_preview_count: 32
+  expected_max_texture_bbox_hw:
+    - 599
+    - 753
+  expected_frames_per_scene: 180
+  preflight_command: conda run -n gflow python -B scripts/preflight_formal.py --runbook docs/formal_experiment_runbook.yaml --config train.yaml
   smoke_command: python -B -m pytest tests/test_smoke.py -q -p no:cacheprovider
 
 commands:

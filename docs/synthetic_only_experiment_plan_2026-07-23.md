@@ -188,6 +188,35 @@ outputs/final/<table_id>/<exp_id>/
 - 一次性迁移脚本已删除。
 - 主协议 `s10` 在 ROI 数据集中通过裁剪复用已有 `dataset/flow/s10`；Table 4 的其他 stride 后续再用 `flow_generation/generate_liteflownet_flow.py` 生成。
 
+### 实验数据快照
+
+| 项目 | 当前值 |
+|---|---|
+| source root | `dataset` |
+| formal root | `dataset_roi` |
+| source resolution | `768 H x 1024 W` |
+| formal ROI resolution | `640 H x 960 W` |
+| split | train / valid / test = 20 / 4 / 8 scenes |
+| total formal scenes | 32 |
+| frames per scene | 180 texture + 180 passive |
+| default active stride | 10 |
+| default passive refs | 4 total refs |
+| train / valid / test samples | 3040 / 608 / 1216 |
+| source `flow/s10` files | 5045 |
+| ROI `flow/s10` files | 4892 |
+| ROI previews | 32 PNGs |
+| max texture union bbox | `599 H x 753 W` |
+| available Table 4 flow sets | `flow/s10` |
+| missing Table 4 flow sets | `flow/s02...s09`, `flow/s11` |
+
+正式 split scene：
+
+```text
+train: adjustable_wrench, alarm_clock_01, american_football, armadillo, bananas, beast, bunny, boulder_01, brass_blowtorch, carrot_cake, carved_wooden_elephant, CashRegister_01, cassette_player, ceramic_pot, cheburashka, cow, Drill_01, industrial_microscope, max-planck, ogre
+valid: korean_fire_extinguisher_01, rocker-arm, vintage_electric_kettle, xyzrgb_dragon
+test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vintage_video_camera
+```
+
 ### 训练和模型
 
 - `model/__init__.py` 已支持 `amt-s / amt-l / amt-g` selector。
@@ -214,8 +243,8 @@ outputs/final/<table_id>/<exp_id>/
 - `dataset_roi/flow/s10` 已由已有 `dataset/flow/s10` 同步裁剪得到，不需要重新跑 LiteFlowNet。
 - 当前覆盖检查通过：train 3040 samples，valid 608 samples，test 1216 samples；texture / passive / flow shape 均为 `640 x 960`。
 - 不覆盖原始 `dataset/flow/s10` 全分辨率缓存；它保留为 source，正式训练读取裁剪后的 `dataset_roi/flow/s10`。
-- 初步只读统计显示，33 个 scene 中最大 union bbox 高度约 599 px，最大宽度可能接近 1024 px，因此不能直接盲目裁成很小尺寸。
-- 输出尺寸必须先通过 preview 决定，目标是目标物体完整运动轨迹保留在画面中，且所有 scene 空间分辨率一致。
+- 当前 32 个正式 scene 的最大 texture union bbox 高度为 599 px，最大宽度为 753 px，均能被 `640 H x 960 W` 固定 ROI 覆盖。
+- ROI 仍需通过 preview 抽查，目标是确认目标物体完整运动轨迹保留在画面中，且所有 scene 空间分辨率一致。
 - 当前目标输出尺寸：`640 H x 960 W`。
 - `binoculars` 已从正式 split 中剔除，不再用它决定 ROI 宽度。
 
@@ -239,6 +268,12 @@ outputs/final/<table_id>/<exp_id>/
   - `NIE`
   - parameter count helpers
 
+### 执行前 preflight
+
+- 英文执行 runbook 位于 `docs/formal_experiment_runbook.yaml`，用于正式长跑前检查路径、默认协议、split、ROI 尺寸和 artifact contract。
+- `scripts/preflight_formal.py` 已新增为一键 preflight 脚本，不启动训练，只检查 required paths、`train.yaml` 与 runbook 是否一致、`dataset_roi` split / sample count / tensor shape / `flow/s10` 覆盖。
+- 正式长跑前先执行 runbook 中的 `preflight_command`，再执行训练、评估和可视化命令。
+
 ## 3. 已解决的旧问题
 
 - pseudo-flow 不再默认写入 `dataset/sim/<scene>/flow`；source 缓存路径为 `dataset/flow/<flow_set>/<scene>`，正式 ROI 缓存路径为 `dataset_roi/flow/<flow_set>/<scene>`。
@@ -251,9 +286,9 @@ outputs/final/<table_id>/<exp_id>/
 - 真实数据迁移已从当前计划移除，后续单独规划。
 - 旧 Ours-v0、edge/temp/flow 探索结果只作为方向性参考，不直接填最终表。
 
-## 4. 仍未完成的代码能力
+## 4. 仍未完成的工作
 
-这些是正式长跑前需要继续补齐的代码或脚本：
+这些是正式长跑前或正式实验阶段需要继续补齐的工作：
 
 1. Baseline wrapper / runner
    - IFRNet wrapper 需要补完整评估入口，使用 `pretrained/IFRNet.pth`。
@@ -292,6 +327,9 @@ outputs/final/<table_id>/<exp_id>/
    - 还缺一键顺序运行表 1 / 表 2 / 表 5 的 runner。
    - runner 需要保存完整命令、git 状态、配置快照和 checkpoint 路径。
    - 当前可以先手动逐条跑，但正式结果必须按 artifact contract 收敛到 `outputs/final/...`。
+8. Table 4 pseudo-flow sets
+   - `dataset_roi/flow/s10` 已完成。
+   - `dataset_roi/flow/s02...s09,s11` 仍未生成；生成后需要再次跑 preflight 或专门覆盖检查。
 
 ## 5. 正式实验队列
 
@@ -449,29 +487,30 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 2. [done] 输出 `roi_preview/<scene>.png` 和 `roi_manifest.json`，后续可继续人工抽查关键 scene。
 3. [done] 生成 `dataset_roi`：复制 20 / 4 / 8 split，同步裁剪 texture / passive，并从 `dataset/flow/s10` 裁剪得到 `dataset_roi/flow/s10`。
 4. [done] 验证 `dataset_roi`：所有 scene 尺寸一致，train/valid/test sample 数一致，`flow/s10` 覆盖完整。
-5. 将正式训练配置切换为 `crop_size: 384`，所有正式命令使用 `--data-root dataset_roi`；验证/测试保持完整 `640x960` ROI。
-6. 跑 smoke：确认 AMT-S/L/G wrapper、train/eval/vis 入口都能在 `dataset_roi` 上正常工作。
-7. 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
-8. 训练 Ours-L，保存 `best.pt` / `last.pt` / `config.json`。
-9. 评估 Ours-L，导出 `pred/err/metrics/vis`。
-10. 补 IFRNet wrapper 并跑表 1。
-11. 重评 SGM-VFI 和 BiM-VFI 到新 split / 新指标。
-12. [code downloaded] `third_party/GIMM-VFI` 已存在；仍需补 GIMM-VFI-F wrapper 并跑表 1。
+5. [done] 正式训练配置已固定为 `crop_size: 384`，所有正式命令使用 `--data-root dataset_roi`；验证/测试保持完整 `640x960` ROI。
+6. [done] 补英文 runbook 和一键 preflight 脚本，正式长跑前先跑 `preflight_command`。
+7. 跑 smoke：确认 AMT-S/L/G wrapper、train/eval/vis 入口都能在 `dataset_roi` 上正常工作。
+8. 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
+9. 训练 Ours-L，保存 `best.pt` / `last.pt` / `config.json`。
+10. 评估 Ours-L，导出 `pred/err/metrics/vis`。
+11. 补 IFRNet wrapper 并跑表 1。
+12. 重评 SGM-VFI 和 BiM-VFI 到新 split / 新指标。
+13. [code downloaded] `third_party/GIMM-VFI` 已存在；仍需补 GIMM-VFI-F wrapper 并跑表 1。
 
 第二阶段跑模型规模消融和部署表：
 
-13. 跑 AMT-S / AMT-G vanilla。
-14. 训练 AMT-S / AMT-G T2exture。
-15. 评估 AMT-S/L/G 的 vanilla 和 T2exture。
-16. 补 latency / FLOPs profiling，填表 5。
+14. 跑 AMT-S / AMT-G vanilla。
+15. 训练 AMT-S / AMT-G T2exture。
+16. 评估 AMT-S/L/G 的 vanilla 和 T2exture。
+17. 补 latency / FLOPs profiling，填表 5。
 
 第三阶段再跑额外消融：
 
-17. 补 no-passive 和 variable passive context，跑表 3。
-18. 补 variable active stride dataset。
-19. 在 `dataset_roi` 下生成 Table 4 的全套 pseudo-flow set：`flow/s02...flow/s11`，其中 `flow/s10` 已由裁剪复用得到，只做覆盖检查。
-20. 跑 Table 4 active frame sparsity。
-21. 暂时不跑 `w/o L_flow`；loss 相关探索等主表和 Table 4 稳定后再决定是否追加。
+18. 补 no-passive 和 variable passive context，跑表 3。
+19. 补 variable active stride dataset。
+20. 在 `dataset_roi` 下生成 Table 4 的全套 pseudo-flow set：`flow/s02...flow/s11`，其中 `flow/s10` 已由裁剪复用得到，只做覆盖检查。
+21. 跑 Table 4 active frame sparsity。
+22. 暂时不跑 `w/o L_flow`；loss 相关探索等主表和 Table 4 稳定后再决定是否追加。
 
 ## 8. 当前不建议做的事
 
