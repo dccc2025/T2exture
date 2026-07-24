@@ -50,9 +50,9 @@ preflight:
     - pretrained/amt-l.pth
     - pretrained/amt-g.pth
     - pretrained/LiteFlowNet.pth
-    - pretrained/flowformer_sintel.pth
-    - pretrained/gimm.pt
-    - pretrained/gimmvfi_f_arb.pt
+    - pretrained/GIMM-VFI-F/flowformer_sintel.pth
+    - pretrained/GIMM-VFI-F/gimm.pt
+    - pretrained/GIMM-VFI-F/gimmvfi_f_arb.pt
     - third_party/AMT_official
     - third_party/IFRNet
     - third_party/SGM-VFI
@@ -98,6 +98,7 @@ commands:
   vis_ours_l: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
   generate_flow_stride_template: conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride STRIDE --splits train valid test --device cuda
   ifrnet_checkpoint: Use pretrained/IFRNet/IFRNet_Vimeo90K.pth for table01_prior/ifrnet; pretrained/IFRNet.pth was renamed because it was LiteFlowNet, not IFRNet VFI.
+  gimm_vfi_f_checkpoints: Use pretrained/GIMM-VFI-F/flowformer_sintel.pth, pretrained/GIMM-VFI-F/gimm.pt, and pretrained/GIMM-VFI-F/gimmvfi_f_arb.pt.
 
 formal_output_paths:
   table01_prior:

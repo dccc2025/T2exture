@@ -7,7 +7,7 @@
 - 当前 split 已落地：train / valid / test = 20 / 4 / 8 scenes。
 - `binoculars` 因 ROI 统计中横向运动轨迹异常接近全宽而从正式 split 中剔除；`bunny` 已从 valid 挪到 train，保持 train 为 20 scenes。
 - 后续正式实验切换到 `dataset_roi`：原始 `dataset` 只作为 source root，`dataset_roi` 作为唯一正式 `--data-root`。公开和复现时将 `dataset_roi` 视为正式 synthetic 数据集的固定 `640x960` frame protocol，不在实验表中混用原始 source root。
-- `third_party/` 只作为本地下载和运行中转，不进入 git；重要权重统一放在 `pretrained/`。
+- `third_party/` 只作为本地下载和运行中转，不进入 git；重要权重统一放在 `pretrained/<method>/` 子目录，AMT 当前训练结束后再从根目录迁移到 `pretrained/AMT/`。
 - 已确认原 `pretrained/IFRNet.pth` 实际是 LiteFlowNet 权重，已重命名为 `pretrained/LiteFlowNet.pth`；不能用于表 1 的 IFRNet baseline。
 - 正式实验不复用旧 split 的数值，只复用旧实验给出的方向性判断。
 - 已确认 baseline 最终名单：IFRNet、SGM-VFI、BiM-VFI、GIMM-VFI-F、AMT-L、Ours-L。
@@ -325,7 +325,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 1. Baseline wrapper / runner
    - IFRNet wrapper 已补完整评估入口 `scripts/eval_ifrnet.py`；官方 VFI checkpoint 已放在 `pretrained/IFRNet/IFRNet_Vimeo90K.pth`，GoPro 权重只保留不用作表 1 默认。
    - GIMM-VFI-F 官方代码已下载到 `third_party/GIMM-VFI`，代码源为 `https://github.com/GSeanCDAT/GIMM-VFI`。
-   - GIMM-VFI-F wrapper 需要补完整评估入口，使用 `flowformer_sintel.pth`, `gimm.pt`, `gimmvfi_f_arb.pt`。
+   - GIMM-VFI-F wrapper 需要补完整评估入口，使用 `pretrained/GIMM-VFI-F/flowformer_sintel.pth`, `pretrained/GIMM-VFI-F/gimm.pt`, `pretrained/GIMM-VFI-F/gimmvfi_f_arb.pt`。
    - AMT-L vanilla 已统一到同一套 test split、指标和 artifact contract。
    - SGM-VFI / BiM-VFI 需要统一到同一套 test split、指标和 artifact contract。
    - InterpAny / LDF-VFI / EDEN 不再补 wrapper，不跑正式表。
