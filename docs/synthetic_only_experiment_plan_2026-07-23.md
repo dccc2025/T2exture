@@ -268,6 +268,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 - `vis.py` 已支持从 eval 结果导出：
   - `vis/png/`
   - `vis/video/`
+- 正式可视化统一使用黑白灰度风格：input / prediction / GT / abs error 全部使用 grayscale，不使用伪彩或热成像 colormap。
 - `metrics/` 已有：
   - `PSNR`
   - `SSIM`

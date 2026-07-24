@@ -37,6 +37,12 @@ default_protocol:
     css: 0.1
     flow: 0.001
 
+visualization_protocol:
+  image_cmap: gray
+  error_cmap: gray
+  error_percentile: 99.0
+  note: Formal visualization uses grayscale for input, prediction, GT, and absolute-error panels.
+
 preflight:
   required_paths:
     - dataset_roi/train.txt
@@ -238,3 +244,6 @@ artifact_contract:
   vis_outputs:
     - vis/png/
     - vis/video/
+  vis_style:
+    image_cmap: gray
+    error_cmap: gray

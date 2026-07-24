@@ -60,7 +60,9 @@ conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-
 ```
 
 Evaluation writes `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, and
-`manifest.json`. Visualization writes `vis/png/` and `vis/video/`.
+`manifest.json`. Visualization writes `vis/png/` and `vis/video/`; the formal
+default style is grayscale for inputs, predictions, GT, and absolute-error
+panels.
 
 ## Flow Labels
 
