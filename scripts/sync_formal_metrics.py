@@ -11,6 +11,14 @@ from typing import Any
 
 MAIN_METRIC_KEYS = ('PSNR', 'SSIM', 'Edge-FI@2px', 'IE', 'NIE')
 DEPLOYMENT_METRIC_KEYS = ('Latency', 'FLOPs', 'Params', 'Trainable Params')
+STATIC_RUNTIME_VALUES = {
+    ('table01_prior', 'ifrnet'): {'Params': '5.00M'},
+    ('table01_prior', 'sgm-vfi'): {'Params': '20.80M'},
+    ('table01_prior', 'bim-vfi'): {'Params': '6.88M'},
+    ('table01_prior', 'gimm-vfi-f'): {'Params': '30.61M'},
+    ('table01_prior', 'amt-l-vanilla'): {'Params': '12.94M'},
+    ('table01_prior', 'ours-l'): {'Params': '13.14M'},
+}
 TABLE_ROWS = {
     'table01_prior': [
         ('ifrnet', 'IFRNet [CVPR 2022]'),
@@ -110,6 +118,7 @@ def collect_rows(outputs_root: Path) -> list[dict[str, str]]:
             runtime, runtime_path = find_runtime(exp_dir)
             overall = metrics.get('overall', {}) if metrics else {}
             runtime_values = runtime.get('overall', runtime) if runtime else {}
+            runtime_values = {**STATIC_RUNTIME_VALUES.get((table_id, exp_id), {}), **runtime_values}
             row = {
                 'table': table_id,
                 'experiment': exp_id,
