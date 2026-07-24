@@ -174,7 +174,7 @@ outputs/final/<table_id>/<exp_id>/
 |---|---|
 | prior comparison | `table01_prior/ifrnet`, `table01_prior/gimm-vfi-f`, `table01_prior/amt-l-vanilla`, `table01_prior/ours-l` |
 | AMT size ablation | `table02_amt_size/amt-s-vanilla`, `table02_amt_size/amt-s-t2texture`, `table02_amt_size/amt-l-t2texture`, `table02_amt_size/amt-g-t2texture` |
-| passive context | `table03_passive_context/passive-refs-00`, `table03_passive_context/passive-refs-04`, `table03_passive_context/passive-refs-10` |
+| passive context | `table03_passive_context/context-per-side-01`, `table03_passive_context/context-per-side-05`, `table03_passive_context/context-per-side-10` |
 | active sparsity | `table04_active_sparsity/active-stride-02`, `table04_active_sparsity/active-stride-10`, `table04_active_sparsity/active-stride-11` |
 | deployment | `table05_deployment/amt-l-t2texture` |
 
@@ -208,7 +208,7 @@ outputs/final/<table_id>/<exp_id>/
 | total formal scenes | 32 |
 | frames per scene | 180 texture + 180 passive |
 | default active stride | 10 |
-| default passive refs | 4 total refs |
+| default passive refs | 2 refs per side / 4 total refs |
 | train / valid / test samples | 3040 / 608 / 1216 |
 | source `flow/s10` files | 5045 |
 | ROI `flow/s10` files | 4892 |
@@ -299,7 +299,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
   - `outputs/final/_summary/by_table/table04_active_sparsity.md`
   - `outputs/final/_summary/by_table/table05_deployment.csv`
   - `outputs/final/_summary/by_table/table05_deployment.md`
-- 当前汇总脚本已覆盖表 1 到表 5 的 34 个正式行；当前状态为 `done=4, missing=30`。
+- 当前汇总脚本覆盖表 1 到表 5 的 38 个正式行；当前同步状态为 `done=12, missing=26`，实时状态以 `outputs/final/_summary/metrics_summary.md` 为准。
 - 已补官方 AMT-S/L/G vanilla 评估入口：`scripts/eval_amt_vanilla.py`，输出 `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, `manifest.json`，和 T2exture `eval.py` 的 artifact contract 对齐。
 - 已完成 AMT vanilla 正式评估和 sample 可视化：
   - 表 1 AMT-L vanilla：`outputs/final/table01_prior/amt-l-vanilla/test`
@@ -312,7 +312,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 - pseudo-flow 不再默认写入 `dataset/sim/<scene>/flow`；source 缓存路径为 `dataset/flow/<flow_set>/<scene>`，正式 ROI 缓存路径为 `dataset_roi/flow/<flow_set>/<scene>`。
 - 已有 5045 个旧 flow 不是坏数据，格式和覆盖都正常；问题只是旧路径组织，现在已迁移到 `dataset/flow/s10`，后续作为 `dataset_roi/flow/s10` 的裁剪源。
 - Table 3 和 Table 4 已明确区分：
-  - Table 3 测 passive reference 数量。
+  - Table 3 测 target 前后每侧输入的 passive reference 数量。
   - Table 4 测 active frame sparsity。
 - Table 4 不再使用 active/passive proportion 的表述，改成 `Passive frames between active anchors`。
 - AMT-G 的 refine scope 已明确要适配 `update2_low / update2_high`。
@@ -338,9 +338,11 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
    - 参数量统计口径需要和 T2exture wrapper 区分：`official backbone params` vs `T2exture total params`。
 
 3. Passive context ablation
-   - 代码已支持 `passive_context=0 / 2 / 4 / 6 / 8 / 10`。
-   - 表 3 正式配置建议所有行统一设置 `sample_passive_context: 10`，保证 no-passive 和多 passive 行使用同一 target-frame 评估窗口。
-   - 仍需为每一行生成独立 config / output 目录，并重训重评。
+   - 表 3 的 `Context Passive Number` 定义为 target 前后每侧 passive reference 数量。
+   - 正式 10 行为 `Context Passive Number = 1..10`，代码参数对应 `passive_context = 2, 4, ..., 20`。
+   - 所有行统一设置 `sample_passive_context: 20`，保证不同 context 数量使用同一 target-frame 评估窗口。
+   - 已验证新 Table 3 每行样本数一致：train / valid / test = `2880 / 576 / 1152`。
+   - `0` 表示 no-passive diagnostic，可作为补充诊断；不放入当前 10 行正式曲线，除非后续明确需要。
 
 4. Active frame sparsity ablation
    - `TextureDataset` / `train.py` / `eval.py` 已支持配置化 `active_stride`，并使用 `time = offset / active_stride`。
@@ -430,21 +432,25 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 
 ### 表 3：Passive Context Reference，放 5.3.3
 
-| Passive refs per side | Total passive refs | PSNR | SSIM | Edge-FI@2px | IE | NIE |
+| Context Passive Number per side | Total passive refs | PSNR | SSIM | Edge-FI@2px | IE | NIE |
 |---:|---:|---:|---:|---:|---:|---:|
-| 0 | 0 |  |  |  |  |  |
 | 1 | 2 |  |  |  |  |  |
 | 2 default | 4 |  |  |  |  |  |
 | 3 | 6 |  |  |  |  |  |
 | 4 | 8 |  |  |  |  |  |
 | 5 | 10 |  |  |  |  |  |
+| 6 | 12 |  |  |  |  |  |
+| 7 | 14 |  |  |  |  |  |
+| 8 | 16 |  |  |  |  |  |
+| 9 | 18 |  |  |  |  |  |
+| 10 | 20 |  |  |  |  |  |
 
 执行原则：
 
 - 固定 backbone：AMT-L。
 - 固定 loss、schedule、split、active stride。
-- 只改变 passive reference 数量。
-- `0` 是 no-passive ablation，需要先补代码。
+- 只改变每侧输入的 passive reference 数量。
+- `0` 是 no-passive diagnostic，不放入当前 10 行正式曲线。
 
 ### 表 4：Active Frame Sparsity，放 5.3.2
 
@@ -464,7 +470,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 执行原则：
 
 - 固定 backbone：AMT-L。
-- 固定 passive context：默认 total passive refs = 4。
+- 固定 passive context：默认每侧 2 张，total passive refs = 4。
 - 固定 loss 和训练 schedule。
 - 只改变 active stride。
 - 全部都是 active frames 属于 oracle upper bound，不放进同一条折线。
@@ -518,14 +524,14 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 - 指标缺 `Edge-FI@2px / IE / NIE`。
 - Ours 训练 schedule 不是当前 `10000 + 5000` iteration 协议。
 - 部分 loss ablation 是 Ours-v0 探索，不是最终固定协议。
-- context ablation 用的是 radius，不是准确的 total passive refs。
+- 旧 context ablation 最多只到每侧 5 张，且 sample window 与当前每侧 10 张协议不一致。
 
 仍然有价值的结论：
 
 - Ours-v0 在旧 split 上明显优于 AMT-L vanilla，可作为 sanity check。
 - 去掉 `L_edge` 后旧实验没有变差，因此 edge loss 不作为主贡献。
 - `L_temp` 和 `L_flow` 在旧 Ours-v0 上没有稳定大幅提升，因此正式表中谨慎解释。
-- no-passive 旧实验下降明显，可以支持 passive guidance 的必要性，但必须用新 split 重跑。
+- no-passive 旧实验下降明显，可以作为 passive guidance 必要性的 sanity check；正式 passive context 曲线必须按当前每侧 1..10 协议重跑。
 
 ## 7. 推荐执行顺序
 
@@ -555,7 +561,7 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 
 第三阶段再跑额外消融：
 
-18. 补 no-passive 和 variable passive context，跑表 3。
+18. 跑 Table 3：Context Passive Number per side = 1..10。
 19. 补 variable active stride dataset。
 20. 在 `dataset_roi` 下生成 Table 4 的全套 pseudo-flow set：`flow/s02...flow/s11`，其中 `flow/s10` 已由裁剪复用得到，只做覆盖检查。
 21. 跑 Table 4 active frame sparsity。

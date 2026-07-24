@@ -1,6 +1,6 @@
-passive_context: 2
+passive_context: 20
 active_stride: 10
-sample_passive_context: 10
+sample_passive_context: 20
 require_dataset_roi: true
 pseudo_flow_dir: flow/s10
 adapter_iterations: 10000
