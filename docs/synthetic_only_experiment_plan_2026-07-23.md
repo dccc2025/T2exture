@@ -94,12 +94,17 @@ require_dataset_roi: true
 pseudo_flow_dir: flow/s10
 adapter_iterations: 10000
 finetune_iterations: 5000
-batch_size: 1
+batch_size: 4
+valid_batch_size: 1
+eval_batch_size: 1
 crop_size: 384
 adapter_lr: 0.0002
 finetune_lr: 0.00005
 layerwise_lr_decay: 0.8
-num_workers: 0
+num_workers: 16
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 4
 seed: 2026
 valid_interval: 500
 loss:
@@ -107,6 +112,8 @@ loss:
   css: 0.1
   flow: 0.001
 ```
+
+当前工作站为 Threadripper PRO 9985WX 64C/128T、256GB RAM、RTX 4090 48GB。训练阶段使用 `384` crop，因此默认训练 `batch_size` 保持 4；验证/测试阶段使用完整 `640x960` ROI，AMT all-pairs correlation 显存压力更高，因此 `valid_batch_size` 和 `eval_batch_size` 先保持 1，避免 full-frame OOM。短 benchmark 显示 AMT-L finetune 在 `batch_size=4` 时约 `0.13s/step`、峰值约 `5.2GB`；提高到 8/16/24 会让单步时间近似线性增加，而正式训练按 iterations 计数，因此不作为默认加速方案。`num_workers=16`、`pin_memory=true`、`persistent_workers=true`、`prefetch_factor=4` 是当前默认吞吐配置；64 workers 启动和调度开销更大，不建议使用。
 
 两阶段含义：
 
@@ -274,6 +281,25 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 - `scripts/preflight_formal.py` 已新增为一键 preflight 脚本，不启动训练，只检查 required paths、`train.yaml` 与 runbook 是否一致、`dataset_roi` split / sample count / tensor shape / `flow/s10` 覆盖。
 - 正式长跑前先执行 runbook 中的 `preflight_command`，再执行训练、评估和可视化命令。
 
+### 指标同步和输出路径
+
+- 所有正式结果必须写入 `outputs/final/<table_id>/<exp_id>/`。
+- 每次训练 / 评估 / 可视化完成后，重新运行 `scripts/sync_formal_metrics.py`，同步生成：
+  - `outputs/final/_summary/metrics_summary.csv`
+  - `outputs/final/_summary/metrics_summary.md`
+  - `outputs/final/_summary/by_table/table01_prior.csv`
+  - `outputs/final/_summary/by_table/table01_prior.md`
+  - `outputs/final/_summary/by_table/table02_amt_size.csv`
+  - `outputs/final/_summary/by_table/table02_amt_size.md`
+  - `outputs/final/_summary/by_table/table03_passive_context.csv`
+  - `outputs/final/_summary/by_table/table03_passive_context.md`
+  - `outputs/final/_summary/by_table/table04_active_sparsity.csv`
+  - `outputs/final/_summary/by_table/table04_active_sparsity.md`
+  - `outputs/final/_summary/by_table/table05_deployment.csv`
+  - `outputs/final/_summary/by_table/table05_deployment.md`
+- 当前汇总脚本已覆盖表 1 到表 5 的 34 个正式行；由于 `outputs/final` 尚无正式实验结果，当前状态为 `done=0, missing=34`。
+- 已补官方 AMT-S/L/G vanilla 评估入口：`scripts/eval_amt_vanilla.py`，输出 `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, `manifest.json`，和 T2exture `eval.py` 的 artifact contract 对齐。
+
 ## 3. 已解决的旧问题
 
 - pseudo-flow 不再默认写入 `dataset/sim/<scene>/flow`；source 缓存路径为 `dataset/flow/<flow_set>/<scene>`，正式 ROI 缓存路径为 `dataset_roi/flow/<flow_set>/<scene>`。
@@ -298,8 +324,9 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
    - InterpAny / LDF-VFI / EDEN 不再补 wrapper，不跑正式表。
 
 2. Vanilla AMT-S/L/G 评估入口
-   - 表 2 和表 5 需要 AMT-S/L/G vanilla。
-   - vanilla 不应使用 passive context，也不训练 adapter。
+   - `scripts/eval_amt_vanilla.py` 已补，可跑 AMT-S/L/G vanilla。
+   - 表 1 的 AMT-L vanilla 和表 2 的 AMT-S/L/G vanilla 可直接从该入口评估。
+   - vanilla 不使用 passive context，也不训练 adapter；评估 sample window 与默认协议一致。
    - 参数量统计口径需要和 T2exture wrapper 区分：`official backbone params` vs `T2exture total params`。
 
 3. Passive context ablation
@@ -324,9 +351,11 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
    - latency 需要固定输入分辨率、batch size、warmup 次数、重复次数和 GPU 型号。
 
 7. Experiment runner
+   - 英文 runbook 已列出关键手动命令和所有正式输出目录。
    - 还缺一键顺序运行表 1 / 表 2 / 表 5 的 runner。
    - runner 需要保存完整命令、git 状态、配置快照和 checkpoint 路径。
-   - 当前可以先手动逐条跑，但正式结果必须按 artifact contract 收敛到 `outputs/final/...`。
+   - 当前可以先按 runbook 手动逐条跑，但正式结果必须按 artifact contract 收敛到 `outputs/final/...`。
+   - `scripts/sync_formal_metrics.py` 已补，用于每次实验结束后同步统计指标。
 8. Table 4 pseudo-flow sets
    - `dataset_roi/flow/s10` 已完成。
    - `dataset_roi/flow/s02...s09,s11` 仍未生成；生成后需要再次跑 preflight 或专门覆盖检查。
@@ -359,8 +388,19 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 | SGM-VFI | 需要重评到新 split 和新指标 |
 | BiM-VFI | 需要重评到新 split 和新指标 |
 | GIMM-VFI-F | 官方 repo 已下载，权重已存在，wrapper / eval runner 未完成 |
-| AMT-L vanilla | 需要重评到新 split 和新指标 |
-| Ours-L | 需要按 `dataset_roi` 正式配置重训 / 重评 |
+| AMT-L vanilla | 官方 AMT vanilla eval 入口已补，待运行并同步指标 |
+| Ours-L | 需要按 `dataset_roi` 正式配置训练 / 评估 / 可视化，并同步指标 |
+
+表 1 正式输出路径：
+
+| Method | Output root |
+|---|---|
+| IFRNet | `outputs/final/table01_prior/ifrnet` |
+| SGM-VFI | `outputs/final/table01_prior/sgm-vfi` |
+| BiM-VFI | `outputs/final/table01_prior/bim-vfi` |
+| GIMM-VFI-F | `outputs/final/table01_prior/gimm-vfi-f` |
+| AMT-L vanilla | `outputs/final/table01_prior/amt-l-vanilla` |
+| Ours-L | `outputs/final/table01_prior/ours-l` |
 
 ### 表 2：Simulated Dataset Finetuning，放 5.3.1
 

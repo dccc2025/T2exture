@@ -59,9 +59,23 @@ def infinite_loader(loader: DataLoader):
             yield batch
 
 
+def loader_kwargs(config: dict[str, Any], device: torch.device) -> dict[str, Any]:
+    """Return DataLoader performance options that are safe on Windows."""
+    workers = int(config.get('num_workers', 0))
+    kwargs: dict[str, Any] = {
+        'num_workers': workers,
+        'pin_memory': bool(config.get('pin_memory', False)) and device.type == 'cuda',
+    }
+    if workers > 0:
+        kwargs['persistent_workers'] = bool(config.get('persistent_workers', False))
+        kwargs['prefetch_factor'] = int(config.get('prefetch_factor', 2))
+    return kwargs
+
+
 def move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     """Move tensor values to the training device without touching metadata fields."""
-    return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+    non_blocking = device.type == 'cuda'
+    return {key: value.to(device, non_blocking=non_blocking) if torch.is_tensor(value) else value for key, value in batch.items()}
 
 
 def resolve_data_path(root: Path, value: str | Path) -> Path:
@@ -116,8 +130,8 @@ def main() -> None:
     sample_passive_context = resolve_sample_passive_context(config, passive_context)
     train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride, sample_passive_context)
     valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride, sample_passive_context=sample_passive_context)
-    train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, num_workers=config['num_workers']))
-    valid_loader = DataLoader(valid_data, batch_size=config['batch_size'], shuffle=False, num_workers=config['num_workers'])
+    train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, **loader_kwargs(config, device)))
+    valid_loader = DataLoader(valid_data, batch_size=int(config.get('valid_batch_size', config['batch_size'])), shuffle=False, **loader_kwargs(config, device))
     model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)
     criterion = CompositeLoss(config.get('loss')).to(device)
     resume_state = load_checkpoint(args.resume, device) if args.resume is not None else None

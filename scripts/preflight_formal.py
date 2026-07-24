@@ -64,6 +64,12 @@ def check_default_protocol(config: dict[str, Any], runbook: dict[str, Any], erro
         'adapter_iterations',
         'finetune_iterations',
         'batch_size',
+        'valid_batch_size',
+        'eval_batch_size',
+        'num_workers',
+        'pin_memory',
+        'persistent_workers',
+        'prefetch_factor',
         'valid_interval',
     ]
     for key in scalar_keys:

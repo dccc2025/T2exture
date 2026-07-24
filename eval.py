@@ -83,7 +83,21 @@ def _save_png(image: torch.Tensor, path: Path) -> None:
 
 def _move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     """Move tensor values to the evaluation device without touching metadata fields."""
-    return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
+    non_blocking = device.type == 'cuda'
+    return {key: value.to(device, non_blocking=non_blocking) if torch.is_tensor(value) else value for key, value in batch.items()}
+
+
+def _loader_kwargs(config: dict[str, Any], device: torch.device) -> dict[str, Any]:
+    """Return DataLoader options shared with training."""
+    workers = int(config.get('num_workers', 0))
+    kwargs: dict[str, Any] = {
+        'num_workers': workers,
+        'pin_memory': bool(config.get('pin_memory', False)) and device.type == 'cuda',
+    }
+    if workers > 0:
+        kwargs['persistent_workers'] = bool(config.get('persistent_workers', False))
+        kwargs['prefetch_factor'] = int(config.get('prefetch_factor', 2))
+    return kwargs
 
 
 def _resolve_data_path(root: Path, value: str | Path) -> Path:
@@ -142,7 +156,8 @@ def main() -> None:
         active_stride=active_stride,
         sample_passive_context=sample_passive_context,
     )
-    loader = DataLoader(dataset, batch_size=args.batch_size or config['batch_size'], shuffle=False, num_workers=config['num_workers'])
+    batch_size = args.batch_size or int(config.get('eval_batch_size', config['batch_size']))
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, **_loader_kwargs(config, device))
 
     model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)
     checkpoint = _torch_load(args.checkpoint, device)

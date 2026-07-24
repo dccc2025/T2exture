@@ -222,7 +222,13 @@ def _write_video(path: Path, frames: list[Path], fps: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with imageio.get_writer(path, fps=fps, macro_block_size=1) as writer:
         for frame_path in frames:
-            writer.append_data(np.asarray(Image.open(frame_path).convert('RGB')))
+            frame = Image.open(frame_path).convert('RGB')
+            width, height = frame.size
+            if width % 2 or height % 2:
+                padded = Image.new('RGB', (width + width % 2, height + height % 2), (0, 0, 0))
+                padded.paste(frame, (0, 0))
+                frame = padded
+            writer.append_data(np.asarray(frame))
 
 
 def main() -> None:

@@ -24,7 +24,13 @@ default_protocol:
   crop_size: 384
   adapter_iterations: 10000
   finetune_iterations: 5000
-  batch_size: 1
+  batch_size: 4
+  valid_batch_size: 1
+  eval_batch_size: 1
+  num_workers: 16
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
   valid_interval: 500
   loss:
     charbonnier: 1.0
@@ -76,10 +82,60 @@ preflight:
 
 commands:
   create_dataset_roi: conda run -n gflow python -B data_preparation/create_dataset_roi.py --source-root dataset --output-root dataset_roi --height 640 --width 960 --flow-set s10
+  sync_metrics: conda run -n gflow python -B scripts/sync_formal_metrics.py --outputs-root outputs/final --csv outputs/final/_summary/metrics_summary.csv --markdown outputs/final/_summary/metrics_summary.md --per-table-dir outputs/final/_summary/by_table
+  eval_amt_s_vanilla: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-s.pth --backbone amt-s --split test --output-dir outputs/final/table02_amt_size/amt-s-vanilla/test --config train.yaml
+  eval_amt_l_vanilla_table01: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --split test --output-dir outputs/final/table01_prior/amt-l-vanilla/test --config train.yaml
+  eval_amt_l_vanilla_table02: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --split test --output-dir outputs/final/table02_amt_size/amt-l-vanilla/test --config train.yaml
+  eval_amt_g_vanilla: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-g.pth --backbone amt-g --split test --output-dir outputs/final/table02_amt_size/amt-g-vanilla/test --config train.yaml
   train_ours_l: conda run -n gflow python -B train.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --output-dir outputs/final/table01_prior/ours-l --config train.yaml
   eval_ours_l: conda run -n gflow python -B eval.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --checkpoint outputs/final/table01_prior/ours-l/best.pt --split test --output-dir outputs/final/table01_prior/ours-l/test --config train.yaml
   vis_ours_l: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
   generate_flow_stride_template: conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride STRIDE --splits train valid test --device cuda
+
+formal_output_paths:
+  table01_prior:
+    ifrnet: outputs/final/table01_prior/ifrnet
+    sgm-vfi: outputs/final/table01_prior/sgm-vfi
+    bim-vfi: outputs/final/table01_prior/bim-vfi
+    gimm-vfi-f: outputs/final/table01_prior/gimm-vfi-f
+    amt-l-vanilla: outputs/final/table01_prior/amt-l-vanilla
+    ours-l: outputs/final/table01_prior/ours-l
+  table02_amt_size:
+    amt-s-vanilla: outputs/final/table02_amt_size/amt-s-vanilla
+    amt-s-t2texture: outputs/final/table02_amt_size/amt-s-t2texture
+    amt-l-vanilla: outputs/final/table02_amt_size/amt-l-vanilla
+    amt-l-t2texture: outputs/final/table02_amt_size/amt-l-t2texture
+    amt-g-vanilla: outputs/final/table02_amt_size/amt-g-vanilla
+    amt-g-t2texture: outputs/final/table02_amt_size/amt-g-t2texture
+  table03_passive_context:
+    passive-refs-00: outputs/final/table03_passive_context/passive-refs-00
+    passive-refs-02: outputs/final/table03_passive_context/passive-refs-02
+    passive-refs-04: outputs/final/table03_passive_context/passive-refs-04
+    passive-refs-06: outputs/final/table03_passive_context/passive-refs-06
+    passive-refs-08: outputs/final/table03_passive_context/passive-refs-08
+    passive-refs-10: outputs/final/table03_passive_context/passive-refs-10
+  table04_active_sparsity:
+    active-stride-02: outputs/final/table04_active_sparsity/active-stride-02
+    active-stride-03: outputs/final/table04_active_sparsity/active-stride-03
+    active-stride-04: outputs/final/table04_active_sparsity/active-stride-04
+    active-stride-05: outputs/final/table04_active_sparsity/active-stride-05
+    active-stride-06: outputs/final/table04_active_sparsity/active-stride-06
+    active-stride-07: outputs/final/table04_active_sparsity/active-stride-07
+    active-stride-08: outputs/final/table04_active_sparsity/active-stride-08
+    active-stride-09: outputs/final/table04_active_sparsity/active-stride-09
+    active-stride-10: outputs/final/table04_active_sparsity/active-stride-10
+    active-stride-11: outputs/final/table04_active_sparsity/active-stride-11
+  table05_deployment:
+    amt-s-vanilla: outputs/final/table05_deployment/amt-s-vanilla
+    amt-s-t2texture: outputs/final/table05_deployment/amt-s-t2texture
+    amt-l-vanilla: outputs/final/table05_deployment/amt-l-vanilla
+    amt-l-t2texture: outputs/final/table05_deployment/amt-l-t2texture
+    amt-g-vanilla: outputs/final/table05_deployment/amt-g-vanilla
+    amt-g-t2texture: outputs/final/table05_deployment/amt-g-t2texture
+  summary:
+    metrics_csv: outputs/final/_summary/metrics_summary.csv
+    metrics_markdown: outputs/final/_summary/metrics_summary.md
+    by_table_dir: outputs/final/_summary/by_table
 
 table03_passive_context:
   note: Set sample_passive_context to 10 for every row so all rows use the same target-frame window.
