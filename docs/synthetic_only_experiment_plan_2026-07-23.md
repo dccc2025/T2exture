@@ -323,7 +323,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 这些是正式长跑前或正式实验阶段需要继续补齐的工作：
 
 1. Baseline wrapper / runner
-   - IFRNet wrapper 需要补完整评估入口；当前还缺官方 VFI checkpoint，建议保存为 `pretrained/IFRNet_Vimeo90K.pth`。
+   - IFRNet wrapper 已补完整评估入口 `scripts/eval_ifrnet.py`；当前还缺官方 VFI checkpoint，建议保存为 `pretrained/IFRNet_Vimeo90K.pth`。
    - GIMM-VFI-F 官方代码已下载到 `third_party/GIMM-VFI`，代码源为 `https://github.com/GSeanCDAT/GIMM-VFI`。
    - GIMM-VFI-F wrapper 需要补完整评估入口，使用 `flowformer_sintel.pth`, `gimm.pt`, `gimmvfi_f_arb.pt`。
    - AMT-L vanilla 已统一到同一套 test split、指标和 artifact contract。
@@ -540,7 +540,7 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 8. [done] 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
 9. 训练 Ours-L，保存 `best.pt` / `last.pt` / `config.json`。
 10. 评估 Ours-L，导出 `pred/err/metrics/vis`。
-11. 补 IFRNet wrapper 并跑表 1。
+11. [code done] 补 IFRNet wrapper 并跑表 1。
    - 当前阻塞项：需要先下载官方 IFRNet VFI checkpoint；`pretrained/LiteFlowNet.pth` 只用于 pseudo-flow / LiteFlowNet，不可作为 IFRNet baseline。
 12. 重评 SGM-VFI 和 BiM-VFI 到新 split / 新指标。
 13. [code downloaded] `third_party/GIMM-VFI` 已存在；仍需补 GIMM-VFI-F wrapper 并跑表 1。
