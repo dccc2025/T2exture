@@ -6,7 +6,7 @@
 - 论文主表、消融表、部署表统一使用 scene-disjoint split；正式运行时 split 文件位于 `dataset_roi/train.txt`, `dataset_roi/valid.txt`, `dataset_roi/test.txt`。
 - 当前 split 已落地：train / valid / test = 20 / 4 / 8 scenes。
 - `binoculars` 因 ROI 统计中横向运动轨迹异常接近全宽而从正式 split 中剔除；`bunny` 已从 valid 挪到 train，保持 train 为 20 scenes。
-- 后续正式实验切换到 `dataset_roi`：原始 `dataset` 只作为 source root，`dataset_roi` 作为唯一正式 `--data-root`。
+- 后续正式实验切换到 `dataset_roi`：原始 `dataset` 只作为 source root，`dataset_roi` 作为唯一正式 `--data-root`。公开和复现时将 `dataset_roi` 视为正式 synthetic 数据集的固定 `640x960` frame protocol，不在实验表中混用原始 source root。
 - `third_party/` 只作为本地下载和运行中转，不进入 git；重要权重统一放在 `pretrained/`。
 - 正式实验不复用旧 split 的数值，只复用旧实验给出的方向性判断。
 - 已确认 baseline 最终名单：IFRNet、SGM-VFI、BiM-VFI、GIMM-VFI-F、AMT-L、Ours-L。
@@ -297,8 +297,13 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
   - `outputs/final/_summary/by_table/table04_active_sparsity.md`
   - `outputs/final/_summary/by_table/table05_deployment.csv`
   - `outputs/final/_summary/by_table/table05_deployment.md`
-- 当前汇总脚本已覆盖表 1 到表 5 的 34 个正式行；由于 `outputs/final` 尚无正式实验结果，当前状态为 `done=0, missing=34`。
+- 当前汇总脚本已覆盖表 1 到表 5 的 34 个正式行；当前状态为 `done=4, missing=30`。
 - 已补官方 AMT-S/L/G vanilla 评估入口：`scripts/eval_amt_vanilla.py`，输出 `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, `manifest.json`，和 T2exture `eval.py` 的 artifact contract 对齐。
+- 已完成 AMT vanilla 正式评估和 sample 可视化：
+  - 表 1 AMT-L vanilla：`outputs/final/table01_prior/amt-l-vanilla/test`
+  - 表 2 AMT-S vanilla：`outputs/final/table02_amt_size/amt-s-vanilla/test`
+  - 表 2 AMT-L vanilla：`outputs/final/table02_amt_size/amt-l-vanilla/test`
+  - 表 2 AMT-G vanilla：`outputs/final/table02_amt_size/amt-g-vanilla/test`
 
 ## 3. 已解决的旧问题
 
@@ -320,7 +325,8 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
    - IFRNet wrapper 需要补完整评估入口，使用 `pretrained/IFRNet.pth`。
    - GIMM-VFI-F 官方代码已下载到 `third_party/GIMM-VFI`，代码源为 `https://github.com/GSeanCDAT/GIMM-VFI`。
    - GIMM-VFI-F wrapper 需要补完整评估入口，使用 `flowformer_sintel.pth`, `gimm.pt`, `gimmvfi_f_arb.pt`。
-   - SGM-VFI / BiM-VFI / AMT-L vanilla 需要统一到同一套 test split、指标和 artifact contract。
+   - AMT-L vanilla 已统一到同一套 test split、指标和 artifact contract。
+   - SGM-VFI / BiM-VFI 需要统一到同一套 test split、指标和 artifact contract。
    - InterpAny / LDF-VFI / EDEN 不再补 wrapper，不跑正式表。
 
 2. Vanilla AMT-S/L/G 评估入口
@@ -388,7 +394,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 | SGM-VFI | 需要重评到新 split 和新指标 |
 | BiM-VFI | 需要重评到新 split 和新指标 |
 | GIMM-VFI-F | 官方 repo 已下载，权重已存在，wrapper / eval runner 未完成 |
-| AMT-L vanilla | 官方 AMT vanilla eval 入口已补，待运行并同步指标 |
+| AMT-L vanilla | 已完成：PSNR 25.3512 / SSIM 0.9401 / Edge-FI@2px 0.9448 / IE 3.2938 / NIE 0.0129 |
 | Ours-L | 需要按 `dataset_roi` 正式配置训练 / 评估 / 可视化，并同步指标 |
 
 表 1 正式输出路径：
@@ -406,11 +412,11 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 
 | Model | Setting | Train/Total Params | PSNR | SSIM | Edge-FI@2px | IE | NIE |
 |---|---|---:|---:|---:|---:|---:|---:|
-| AMT-S | vanilla |  |  |  |  |  |  |
+| AMT-S | vanilla |  | 24.3697 | 0.9343 | 0.9486 | 3.7356 | 0.0146 |
 | AMT-S | T2exture |  |  |  |  |  |  |
-| AMT-L | vanilla |  |  |  |  |  |  |
+| AMT-L | vanilla |  | 25.3512 | 0.9401 | 0.9448 | 3.2938 | 0.0129 |
 | AMT-L | T2exture |  |  |  |  |  |  |
-| AMT-G | vanilla |  |  |  |  |  |  |
+| AMT-G | vanilla |  | 25.4356 | 0.9401 | 0.9431 | 3.2880 | 0.0129 |
 | AMT-G | T2exture |  |  |  |  |  |  |
 
 执行原则：
@@ -529,8 +535,8 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 4. [done] 验证 `dataset_roi`：所有 scene 尺寸一致，train/valid/test sample 数一致，`flow/s10` 覆盖完整。
 5. [done] 正式训练配置已固定为 `crop_size: 384`，所有正式命令使用 `--data-root dataset_roi`；验证/测试保持完整 `640x960` ROI。
 6. [done] 补英文 runbook 和一键 preflight 脚本，正式长跑前先跑 `preflight_command`。
-7. 跑 smoke：确认 AMT-S/L/G wrapper、train/eval/vis 入口都能在 `dataset_roi` 上正常工作。
-8. 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
+7. [done] 跑 smoke：确认 AMT-S/L/G wrapper、train/eval/vis 入口都能在 `dataset_roi` 上正常工作。
+8. [done] 跑 AMT-L vanilla 新 split 评估，导出完整 artifact。
 9. 训练 Ours-L，保存 `best.pt` / `last.pt` / `config.json`。
 10. 评估 Ours-L，导出 `pred/err/metrics/vis`。
 11. 补 IFRNet wrapper 并跑表 1。
@@ -539,7 +545,7 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 
 第二阶段跑模型规模消融和部署表：
 
-14. 跑 AMT-S / AMT-G vanilla。
+14. [done] 跑 AMT-S / AMT-G vanilla。
 15. 训练 AMT-S / AMT-G T2exture。
 16. 评估 AMT-S/L/G 的 vanilla 和 T2exture。
 17. 补 latency / FLOPs profiling，填表 5。
