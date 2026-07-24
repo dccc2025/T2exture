@@ -49,7 +49,7 @@ preflight:
     - pretrained/amt-s.pth
     - pretrained/amt-l.pth
     - pretrained/amt-g.pth
-    - pretrained/IFRNet.pth
+    - pretrained/LiteFlowNet.pth
     - pretrained/flowformer_sintel.pth
     - pretrained/gimm.pt
     - pretrained/gimmvfi_f_arb.pt
@@ -95,6 +95,7 @@ commands:
   eval_ours_l: conda run -n gflow python -B eval.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --checkpoint outputs/final/table01_prior/ours-l/best.pt --split test --output-dir outputs/final/table01_prior/ours-l/test --config train.yaml
   vis_ours_l: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
   generate_flow_stride_template: conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride STRIDE --splits train valid test --device cuda
+  pending_ifrnet_checkpoint: Download official IFRNet_Vimeo90K.pth before running table01_prior/ifrnet; pretrained/IFRNet.pth was renamed because it was LiteFlowNet, not IFRNet VFI.
 
 formal_output_paths:
   table01_prior:
