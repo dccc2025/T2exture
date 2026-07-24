@@ -9,7 +9,8 @@ agent.md
 outputs/
 dataset/
 dataset_roi/
-pretrained/
+pretrained/*
+!pretrained/README.txt
 third_party/
 third_party_baselines/
 .vscode/
