@@ -83,7 +83,7 @@ preflight:
 commands:
   create_dataset_roi: conda run -n gflow python -B data_preparation/create_dataset_roi.py --source-root dataset --output-root dataset_roi --height 640 --width 960 --flow-set s10
   sync_metrics: conda run -n gflow python -B scripts/sync_formal_metrics.py --outputs-root outputs/final --csv outputs/final/_summary/metrics_summary.csv --markdown outputs/final/_summary/metrics_summary.md --per-table-dir outputs/final/_summary/by_table
-  eval_ifrnet: conda run -n gflow python -B scripts/eval_ifrnet.py --data-root dataset_roi --checkpoint pretrained/IFRNet_Vimeo90K.pth --split test --output-dir outputs/final/table01_prior/ifrnet/test --config train.yaml
+  eval_ifrnet: conda run -n gflow python -B scripts/eval_ifrnet.py --data-root dataset_roi --checkpoint pretrained/IFRNet/IFRNet_Vimeo90K.pth --split test --output-dir outputs/final/table01_prior/ifrnet/test --config train.yaml
   vis_ifrnet: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ifrnet/test --output-dir outputs/final/table01_prior/ifrnet/test/vis --method-label IFRNet --max-frames-per-scene 5
   eval_amt_s_vanilla: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-s.pth --backbone amt-s --split test --output-dir outputs/final/table02_amt_size/amt-s-vanilla/test --config train.yaml
   eval_amt_l_vanilla_table01: conda run -n gflow python -B scripts/eval_amt_vanilla.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --split test --output-dir outputs/final/table01_prior/amt-l-vanilla/test --config train.yaml
@@ -97,7 +97,7 @@ commands:
   eval_ours_l: conda run -n gflow python -B eval.py --data-root dataset_roi --pretrained pretrained/amt-l.pth --backbone amt-l --checkpoint outputs/final/table01_prior/ours-l/best.pt --split test --output-dir outputs/final/table01_prior/ours-l/test --config train.yaml
   vis_ours_l: conda run -n gflow python -B vis.py --eval-dir outputs/final/table01_prior/ours-l/test --method-label Ours-L
   generate_flow_stride_template: conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data-root dataset_roi --active-stride STRIDE --splits train valid test --device cuda
-  pending_ifrnet_checkpoint: Download official IFRNet_Vimeo90K.pth before running table01_prior/ifrnet; pretrained/IFRNet.pth was renamed because it was LiteFlowNet, not IFRNet VFI.
+  ifrnet_checkpoint: Use pretrained/IFRNet/IFRNet_Vimeo90K.pth for table01_prior/ifrnet; pretrained/IFRNet.pth was renamed because it was LiteFlowNet, not IFRNet VFI.
 
 formal_output_paths:
   table01_prior:
