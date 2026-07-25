@@ -1,10 +1,11 @@
 # ASCII runbook for Windows/Codex execution.
-# The Chinese manuscript-facing plan remains in synthetic_only_experiment_plan_2026-07-23.md.
+# The Chinese manuscript-facing plan is the T2exture experiment plan in synthetic_only_experiment_plan_2026-07-23.md.
 
 workspace: D:/HADAR/T2exture
 environment: gflow
 formal_data_root: dataset_roi
 source_data_root: dataset
+real_data_root: dataset/real
 outputs_root: outputs/final
 default_config: train.yaml
 
@@ -15,6 +16,7 @@ global_rules:
   - keep_full_eval_artifacts
   - run_one_heavy_gpu_training_job_at_a_time
   - stop_on_metric_or_visual_abnormality
+  - table06_uses_synthetic_trained_models_without_real_finetune
 
 default_protocol:
   active_stride: 10
@@ -64,6 +66,13 @@ preflight:
     - third_party/SGM-VFI
     - third_party/BiM-VFI
     - third_party/GIMM-VFI
+    - dataset/real/bag
+    - dataset/real/doll_01
+    - dataset/real/doll_02
+    - dataset/real/doll_03
+    - dataset/real/doll_04
+    - dataset/real/doll_05
+    - configs/formal/table06/real-benchmark.yaml
   currently_missing_expected: []
   expected_split_counts:
     train: 20
@@ -194,6 +203,13 @@ formal_output_paths:
     amt-l-t2texture: outputs/final/table05_deployment/amt-l-t2texture
     amt-g-vanilla: outputs/final/table05_deployment/amt-g-vanilla
     amt-g-t2texture: outputs/final/table05_deployment/amt-g-t2texture
+  table06_real_benchmark:
+    ifrnet: outputs/final/table06_real_benchmark/ifrnet
+    sgm-vfi: outputs/final/table06_real_benchmark/sgm-vfi
+    bim-vfi: outputs/final/table06_real_benchmark/bim-vfi
+    gimm-vfi-f: outputs/final/table06_real_benchmark/gimm-vfi-f
+    amt-l-vanilla: outputs/final/table06_real_benchmark/amt-l-vanilla
+    ours-l: outputs/final/table06_real_benchmark/ours-l
   summary:
     metrics_csv: outputs/final/_summary/metrics_summary.csv
     metrics_markdown: outputs/final/_summary/metrics_summary.md
@@ -266,6 +282,93 @@ table04_active_sparsity:
       pseudo_flow_dir: flow/s10
     - active_stride: 11
       pseudo_flow_dir: flow/s11
+
+table06_real_benchmark:
+  config: configs/formal/table06/real-benchmark.yaml
+  section: 5.2.2
+  note: Evaluate synthetic-trained or official-pretrained methods on six real sequences. Save per-sequence artifacts, then report the unweighted mean across sequence-level metrics.
+  data_root: dataset/real
+  active_anchor_ids:
+    - 1
+    - 11
+    - 21
+    - 31
+    - 41
+    - 51
+    - 61
+    - 71
+    - 81
+    - 91
+    - 101
+    - 111
+    - 121
+    - 131
+    - 141
+    - 151
+    - 161
+    - 171
+    - 180
+  passive_frame_rule: all frame IDs not listed in active_anchor_ids
+  passive_context_rule: nearest non-anchor passive frames excluding the target frame
+  time_normalization: use (target_id - left_id) / (right_id - left_id), including the final 171-to-180 interval.
+  exclude_dirs:
+    - cailbr
+  sequences:
+    - bag
+    - doll_01
+    - doll_02
+    - doll_03
+    - doll_04
+    - doll_05
+  metrics:
+    - En
+    - AG
+    - SF
+    - SD
+    - SCD
+    - PI
+  metric_notes:
+    En: 8-bit Shannon entropy on predicted grayscale frames.
+    AG: average gradient on predicted grayscale frames.
+    SF: spatial frequency on predicted grayscale frames.
+    SD: standard deviation on predicted grayscale frames.
+    SCD: sum of correlations of differences using left and right active endpoints as source frames.
+    PI: perceptual index from pyiqa's built-in PI metric, equivalent to (NIQE + (10 - NRQM)) / 2 with its internal NIQE/NRQM settings; lower is better.
+  aggregation:
+    frame_to_sequence: arithmetic_mean
+    sequence_to_table: unweighted_arithmetic_mean
+  rows:
+    - exp_id: table06_real_benchmark/ifrnet
+      label: IFRNet [CVPR 2022]
+      params: 5.00M
+    - exp_id: table06_real_benchmark/sgm-vfi
+      label: SGM-VFI [CVPR 2024]
+      params: 20.80M
+    - exp_id: table06_real_benchmark/bim-vfi
+      label: BiM-VFI [CVPR 2025]
+      params: 6.88M
+    - exp_id: table06_real_benchmark/gimm-vfi-f
+      label: GIMM-VFI-F [NeurIPS 2024]
+      params: 30.61M
+    - exp_id: table06_real_benchmark/amt-l-vanilla
+      label: AMT-L [CVPR 2023]
+      params: 12.94M
+    - exp_id: table06_real_benchmark/ours-l
+      label: Ours-L
+      params: 13.14M
+  output_contract:
+    method_root:
+      - metrics.json
+      - sequence.csv
+      - manifest.json
+    sequence_root:
+      - pred/
+      - frame.csv
+      - metrics.json
+      - manifest.json
+      - vis/png/
+      - vis/video/
+  no_gt_metrics_only: true
 
 artifact_contract:
   train_outputs:

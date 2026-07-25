@@ -10,6 +10,7 @@ from typing import Any
 
 
 MAIN_METRIC_KEYS = ('PSNR', 'SSIM', 'Edge-FI@2px', 'IE', 'NIE')
+REAL_METRIC_KEYS = ('En', 'AG', 'SF', 'SD', 'SCD', 'PI')
 DEPLOYMENT_METRIC_KEYS = ('Latency', 'FLOPs', 'Params', 'Trainable Params')
 STATIC_RUNTIME_VALUES = {
     ('table01_prior', 'ifrnet'): {'Params': '5.00M'},
@@ -18,6 +19,12 @@ STATIC_RUNTIME_VALUES = {
     ('table01_prior', 'gimm-vfi-f'): {'Params': '30.61M'},
     ('table01_prior', 'amt-l-vanilla'): {'Params': '12.94M'},
     ('table01_prior', 'ours-l'): {'Params': '13.14M'},
+    ('table06_real_benchmark', 'ifrnet'): {'Params': '5.00M'},
+    ('table06_real_benchmark', 'sgm-vfi'): {'Params': '20.80M'},
+    ('table06_real_benchmark', 'bim-vfi'): {'Params': '6.88M'},
+    ('table06_real_benchmark', 'gimm-vfi-f'): {'Params': '30.61M'},
+    ('table06_real_benchmark', 'amt-l-vanilla'): {'Params': '12.94M'},
+    ('table06_real_benchmark', 'ours-l'): {'Params': '13.14M'},
 }
 TABLE_ROWS = {
     'table01_prior': [
@@ -68,6 +75,14 @@ TABLE_ROWS = {
         ('amt-g-vanilla', 'AMT-G vanilla'),
         ('amt-g-t2texture', 'AMT-G T2exture'),
     ],
+    'table06_real_benchmark': [
+        ('ifrnet', 'IFRNet [CVPR 2022]'),
+        ('sgm-vfi', 'SGM-VFI [CVPR 2024]'),
+        ('bim-vfi', 'BiM-VFI [CVPR 2025]'),
+        ('gimm-vfi-f', 'GIMM-VFI-F [NeurIPS 2024]'),
+        ('amt-l-vanilla', 'AMT-L [CVPR 2023]'),
+        ('ours-l', 'Ours-L'),
+    ],
 }
 
 
@@ -87,6 +102,13 @@ def find_metrics(exp_dir: Path) -> tuple[dict[str, Any] | None, Path | None]:
         if metrics is not None:
             return metrics, path
     return None, None
+
+
+def fallback_metrics_path(outputs_root: Path, table_id: str, exp_id: str) -> Path | None:
+    """Return a metric source shared by another formal table when appropriate."""
+    if table_id == 'table05_deployment':
+        return outputs_root / 'table02_amt_size' / exp_id / 'test' / 'metrics.json'
+    return None
 
 
 def find_runtime(exp_dir: Path) -> tuple[dict[str, Any] | None, Path | None]:
@@ -115,19 +137,30 @@ def collect_rows(outputs_root: Path) -> list[dict[str, str]]:
         for exp_id, label in entries:
             exp_dir = outputs_root / table_id / exp_id
             metrics, metrics_path = find_metrics(exp_dir)
+            if metrics is None:
+                fallback_path = fallback_metrics_path(outputs_root, table_id, exp_id)
+                if fallback_path is not None:
+                    metrics = read_json(fallback_path)
+                    metrics_path = fallback_path if metrics is not None else None
             runtime, runtime_path = find_runtime(exp_dir)
             overall = metrics.get('overall', {}) if metrics else {}
             runtime_values = runtime.get('overall', runtime) if runtime else {}
             runtime_values = {**STATIC_RUNTIME_VALUES.get((table_id, exp_id), {}), **runtime_values}
+            if table_id == 'table05_deployment':
+                done = metrics is not None and runtime is not None
+            else:
+                done = metrics is not None or runtime is not None
             row = {
                 'table': table_id,
                 'experiment': exp_id,
                 'label': label,
-                'status': 'done' if metrics or runtime else 'missing',
+                'status': 'done' if done else 'missing',
                 'metrics_path': str(metrics_path.relative_to(outputs_root)).replace('\\', '/') if metrics_path else '',
                 'runtime_path': str(runtime_path.relative_to(outputs_root)).replace('\\', '/') if runtime_path else '',
             }
             for key in MAIN_METRIC_KEYS:
+                row[key] = format_value(overall.get(key))
+            for key in REAL_METRIC_KEYS:
                 row[key] = format_value(overall.get(key))
             for key in DEPLOYMENT_METRIC_KEYS:
                 row[key] = format_value(runtime_values.get(key))
@@ -137,7 +170,7 @@ def collect_rows(outputs_root: Path) -> list[dict[str, str]]:
 
 def write_csv(rows: list[dict[str, str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ['table', 'experiment', 'label', 'status', *MAIN_METRIC_KEYS, *DEPLOYMENT_METRIC_KEYS, 'metrics_path', 'runtime_path']
+    fieldnames = ['table', 'experiment', 'label', 'status', *MAIN_METRIC_KEYS, *REAL_METRIC_KEYS, *DEPLOYMENT_METRIC_KEYS, 'metrics_path', 'runtime_path']
     with path.open('w', newline='', encoding='utf-8') as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -153,12 +186,12 @@ def rows_by_table(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]
 
 def markdown_table(rows: list[dict[str, str]]) -> str:
     lines = [
-        '| Table | Experiment | Status | PSNR | SSIM | Edge-FI@2px | IE | NIE | Latency | FLOPs | Params | Trainable Params | Metrics | Runtime |',
-        '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|',
+        '| Table | Experiment | Status | PSNR | SSIM | Edge-FI@2px | IE | NIE | En | AG | SF | SD | SCD | PI | Latency | FLOPs | Params | Trainable Params | Metrics | Runtime |',
+        '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|',
     ]
     for row in rows:
         lines.append(
-            f"| {row['table']} | {row['label']} | {row['status']} | {row['PSNR']} | {row['SSIM']} | {row['Edge-FI@2px']} | {row['IE']} | {row['NIE']} | {row['Latency']} | {row['FLOPs']} | {row['Params']} | {row['Trainable Params']} | {row['metrics_path']} | {row['runtime_path']} |"
+            f"| {row['table']} | {row['label']} | {row['status']} | {row['PSNR']} | {row['SSIM']} | {row['Edge-FI@2px']} | {row['IE']} | {row['NIE']} | {row['En']} | {row['AG']} | {row['SF']} | {row['SD']} | {row['SCD']} | {row['PI']} | {row['Latency']} | {row['FLOPs']} | {row['Params']} | {row['Trainable Params']} | {row['metrics_path']} | {row['runtime_path']} |"
         )
     return '\n'.join(lines) + '\n'
 

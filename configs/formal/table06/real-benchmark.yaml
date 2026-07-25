@@ -1,0 +1,109 @@
+real_data_root: dataset/real
+output_root: outputs/final/table06_real_benchmark
+
+protocol:
+  train_source: synthetic_only
+  real_finetune: false
+  active_anchor_ids:
+    - 1
+    - 11
+    - 21
+    - 31
+    - 41
+    - 51
+    - 61
+    - 71
+    - 81
+    - 91
+    - 101
+    - 111
+    - 121
+    - 131
+    - 141
+    - 151
+    - 161
+    - 171
+    - 180
+  active_stride_nominal: 10
+  final_interval:
+    left: 171
+    right: 180
+  passive_frame_rule: all_non_anchor_frames
+  passive_context_rule: nearest_non_anchor_frames_excluding_target
+  time_normalization: target_minus_left_divided_by_right_minus_left
+  passive_context: 4
+  aggregation:
+    frame_to_sequence: arithmetic_mean
+    sequence_to_table: unweighted_arithmetic_mean
+
+sequences:
+  - bag
+  - doll_01
+  - doll_02
+  - doll_03
+  - doll_04
+  - doll_05
+
+exclude_dirs:
+  - cailbr
+
+metrics:
+  - En
+  - AG
+  - SF
+  - SD
+  - SCD
+  - PI
+metric_notes:
+  En: 8-bit Shannon entropy on the predicted grayscale frame.
+  AG: average gradient on the predicted grayscale frame.
+  SF: spatial frequency on the predicted grayscale frame.
+  SD: standard deviation on the predicted grayscale frame.
+  SCD: sum of correlations of differences using left and right active endpoints as source frames.
+  PI: perceptual index from pyiqa's built-in PI metric, equivalent to (NIQE + (10 - NRQM)) / 2 with its internal NIQE/NRQM settings; lower is better.
+
+methods:
+  - id: ifrnet
+    label: IFRNet [CVPR 2022]
+    params: 5.00M
+    source: official_pretrained
+    output_dir: outputs/final/table06_real_benchmark/ifrnet
+  - id: sgm-vfi
+    label: SGM-VFI [CVPR 2024]
+    params: 20.80M
+    source: official_pretrained
+    output_dir: outputs/final/table06_real_benchmark/sgm-vfi
+  - id: bim-vfi
+    label: BiM-VFI [CVPR 2025]
+    params: 6.88M
+    source: official_pretrained
+    output_dir: outputs/final/table06_real_benchmark/bim-vfi
+  - id: gimm-vfi-f
+    label: GIMM-VFI-F [NeurIPS 2024]
+    params: 30.61M
+    source: official_pretrained
+    output_dir: outputs/final/table06_real_benchmark/gimm-vfi-f
+  - id: amt-l-vanilla
+    label: AMT-L [CVPR 2023]
+    params: 12.94M
+    source: official_pretrained
+    output_dir: outputs/final/table06_real_benchmark/amt-l-vanilla
+  - id: ours-l
+    label: Ours-L
+    params: 13.14M
+    source: synthetic_trained_checkpoint
+    checkpoint: outputs/final/table01_prior/ours-l/best.pt
+    output_dir: outputs/final/table06_real_benchmark/ours-l
+
+artifact_contract:
+  method_root:
+    - metrics.json
+    - sequence.csv
+    - manifest.json
+  sequence_root:
+    - pred/
+    - frame.csv
+    - metrics.json
+    - manifest.json
+    - vis/png/
+    - vis/video/

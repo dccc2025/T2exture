@@ -1,8 +1,8 @@
-# T2exture 合成数据实验计划
+# T2exture 实验计划
 
 ## 0. 当前边界
 
-- 当前阶段只做 synthetic 数据集实验，不做 real transfer / real finetune。
+- 当前阶段的训练和消融仍只做 synthetic 数据集实验；新增 Table 6 只做 real test，不做 real transfer / real finetune。
 - 论文主表、消融表、部署表统一使用 scene-disjoint split；正式运行时 split 文件位于 `dataset_roi/train.txt`, `dataset_roi/valid.txt`, `dataset_roi/test.txt`。
 - 当前 split 已落地：train / valid / test = 20 / 4 / 8 scenes。
 - `binoculars` 因 ROI 统计中横向运动轨迹异常接近全宽而从正式 split 中剔除；`bunny` 已从 valid 挪到 train，保持 train 为 20 scenes。
@@ -11,6 +11,7 @@
 - 已确认原 `pretrained/IFRNet.pth` 实际是 LiteFlowNet 权重，已重命名为 `pretrained/LiteFlowNet.pth`；不能用于表 1 的 IFRNet baseline。
 - 正式实验不复用旧 split 的数值，只复用旧实验给出的方向性判断。
 - 已确认 baseline 最终名单：IFRNet、SGM-VFI、BiM-VFI、GIMM-VFI-F、AMT-L、Ours-L。
+- 已确认真实测试使用 6 个 real sequences：`bag`, `doll_01`, `doll_02`, `doll_03`, `doll_04`, `doll_05`；`cailbr` 作为标定目录排除。
 - InterpAny、LDF-VFI、EDEN 彻底退出当前正式实验，不再进入主表或消融表。
 - 已确认主 loss 保留 `0.001 * L_flow`，当前实验先按固定协议跑，暂时不做 `w/o L_flow`。
 - 已确认 Table 4 需要生成全套 active-sparsity pseudo-flow set：`flow/s02` 到 `flow/s11`；这些 set 应在 `dataset_roi` 下生成或裁剪，不写回原始 `dataset`。
@@ -299,7 +300,9 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
   - `outputs/final/_summary/by_table/table04_active_sparsity.md`
   - `outputs/final/_summary/by_table/table05_deployment.csv`
   - `outputs/final/_summary/by_table/table05_deployment.md`
-- 当前汇总脚本覆盖表 1 到表 5 的 38 个正式行；当前同步状态为 `done=12, missing=26`，实时状态以 `outputs/final/_summary/metrics_summary.md` 为准。
+  - `outputs/final/_summary/by_table/table06_real_benchmark.csv`
+  - `outputs/final/_summary/by_table/table06_real_benchmark.md`
+- 当前汇总脚本已覆盖表 1 到表 6；Table 6 使用 `scripts/eval_real.py` 写出 real metrics，再由 `scripts/sync_formal_metrics.py` 汇总。实时状态以 `outputs/final/_summary/metrics_summary.md` 为准。
 - 已补官方 AMT-S/L/G vanilla 评估入口：`scripts/eval_amt_vanilla.py`，输出 `pred/`, `err/`, `metrics.json`, `scene.csv`, `frame.csv`, `manifest.json`，和 T2exture `eval.py` 的 artifact contract 对齐。
 - 已完成 AMT vanilla 正式评估和 sample 可视化：
   - 表 1 AMT-L vanilla：`outputs/final/table01_prior/amt-l-vanilla/test`
@@ -316,7 +319,7 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
   - Table 4 测 active frame sparsity。
 - Table 4 不再使用 active/passive proportion 的表述，改成 `Passive frames between active anchors`。
 - AMT-G 的 refine scope 已明确要适配 `update2_low / update2_high`。
-- 真实数据迁移已从当前计划移除，后续单独规划。
+- 真实数据迁移 / real finetune 已从当前计划移除；当前只新增 synthetic-trained models 在 6 个 real sequences 上的直接测试。
 - 旧 Ours-v0、edge/temp/flow 探索结果只作为方向性参考，不直接填最终表。
 
 ## 4. 仍未完成的工作
@@ -357,16 +360,26 @@ test: spot, teapot, hand_truck, beetle, boombox, Camera_01, metal_toolbox, vinta
 
 6. Deployment profiling
    - 目前只有参数量统计 helper。
-   - 还缺统一 latency / FLOPs profiling 入口。
+   - 已补统一 latency / FLOPs profiling 入口：`scripts/profile_deployment.py`。
    - latency 需要固定输入分辨率、batch size、warmup 次数、重复次数和 GPU 型号。
 
-7. Experiment runner
+7. Real benchmark evaluation
+   - Table 6 放在 5.2.2，和表 1 同一批方法：IFRNet、SGM-VFI、BiM-VFI、GIMM-VFI-F、AMT-L、Ours-L。
+   - 训练只使用 synthetic `dataset_roi`；real 端只做 test，不用 real frame 更新权重。
+   - 6 个真实测试序列分别输出：`bag`, `doll_01`, `doll_02`, `doll_03`, `doll_04`, `doll_05`。
+   - 每个 method / sequence 独立保存预测帧、逐帧指标、序列指标和可视化视频。
+   - 论文表格中的 `En / AG / SF / SD / SCD / PI` 用 6 个 sequence-level results 的算术平均；不按帧数加权，避免某个长序列主导平均值。
+   - 因 real data 没有逐帧 GT texture，Table 6 不计算 PSNR / SSIM / IE / NIE，也不伪造 GT error map。
+   - 已补统一 real eval 入口：`scripts/eval_real.py`。
+   - 已补 `En / AG / SF / SD / SCD` 实现和汇总入口；`PI` 使用 `pyiqa` 内置 `pi` metric，从已保存预测帧补算。该实现等价于在同一 PI 模块内部参数下计算 `PI = (NIQE + (10 - NRQM)) / 2`，数值越低越好。
+
+8. Experiment runner
    - 英文 runbook 已列出关键手动命令和所有正式输出目录。
-   - 还缺一键顺序运行表 1 / 表 2 / 表 5 的 runner。
+   - 还缺一键顺序运行表 1 / 表 2 / 表 5 / 表 6 的 runner。
    - runner 需要保存完整命令、git 状态、配置快照和 checkpoint 路径。
    - 当前可以先按 runbook 手动逐条跑，但正式结果必须按 artifact contract 收敛到 `outputs/final/...`。
    - `scripts/sync_formal_metrics.py` 已补，用于每次实验结束后同步统计指标。
-8. Table 4 pseudo-flow sets
+9. Table 4 pseudo-flow sets
    - `dataset_roi/flow/s10` 已完成。
    - `dataset_roi/flow/s02...s09,s11` 仍未生成；生成后需要再次跑 preflight 或专门覆盖检查。
 
@@ -516,6 +529,43 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
 - latency 必须记录 GPU 型号、batch size、输入分辨率、warmup 次数和重复次数。
 - FLOPs 必须使用同一 profiling 函数。
 
+### 表 6：Real Benchmark Generalization，放 5.2.2
+
+该表在真实数据集上测试，但所有方法仍使用 synthetic protocol 得到的模型或官方 pretrained；不在真实数据上训练或微调。论文排版时可和表 1 合并成双栏图，当前先保留为半页表。
+
+| Method | Params | En | AG | SF | SD | SCD | PI |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| IFRNet [CVPR'22] | 5.0M |  |  |  |  |  |  |
+| SGM-VFI [CVPR'24] | 20.8M |  |  |  |  |  |  |
+| BiM-VFI [CVPR'25] | 6.88M |  |  |  |  |  |  |
+| GIMM-VFI-F [NeurIPS'24] | 待统一脚本统计 |  |  |  |  |  |  |
+| AMT-L [CVPR'23] | 12.9M |  |  |  |  |  |  |
+| Ours-L | 待统一脚本统计 |  |  |  |  |  |  |
+
+执行原则：
+
+- real sequences 固定为 `bag`, `doll_01`, `doll_02`, `doll_03`, `doll_04`, `doll_05`；`cailbr` 不作为测试序列。
+- 真实序列标注规则固定为：`1, 11, 21, ..., 171, 180` 是主动帧，其他帧是被动帧。
+- 最后一段是 `171 -> 180`，不是 10 帧间隔；real eval 里时间参数必须用 `t = (target_id - left_id) / (right_id - left_id)`，不能写死 `offset / 10`。
+- 所有方法输入同一组 active/passive frame protocol；Ours-L 使用 synthetic 训练得到的 checkpoint。
+- 每个 sequence 单独输出结果，避免只留下平均值而无法审计。
+- 表格数值为 6 个 sequence-level metrics 的 unweighted mean。
+- 输出路径统一为 `outputs/final/table06_real_benchmark/<method>/<sequence>/`，并在 `outputs/final/table06_real_benchmark/<method>/metrics.json` 保存六序列平均。
+- no-reference 指标统一为 `En / AG / SF / SD / SCD / PI`；`En / AG / SF / SD / SCD` 已在 `metrics/no_reference_metrics.py` 固定实现，`PI` 使用 `pyiqa` 内置 `pi` metric 从已保存预测帧补算。该实现等价于在同一 PI 模块内部参数下计算 `PI = (NIQE + (10 - NRQM)) / 2`，数值越低越好。
+- Ours-L 的 real passive context 使用最近的非 active-anchor 被动帧，并排除 target frame 本身；该规则写入每个 sequence 的 `manifest.json`。
+- 因真实数据没有逐帧 GT，不计算 PSNR / SSIM / Edge-FI@2px / IE / NIE。
+
+表 6 正式输出路径：
+
+| Method | Output root |
+|---|---|
+| IFRNet | `outputs/final/table06_real_benchmark/ifrnet` |
+| SGM-VFI | `outputs/final/table06_real_benchmark/sgm-vfi` |
+| BiM-VFI | `outputs/final/table06_real_benchmark/bim-vfi` |
+| GIMM-VFI-F | `outputs/final/table06_real_benchmark/gimm-vfi-f` |
+| AMT-L vanilla | `outputs/final/table06_real_benchmark/amt-l-vanilla` |
+| Ours-L | `outputs/final/table06_real_benchmark/ours-l` |
+
 ## 6. 旧实验怎么用
 
 不能直接填最终论文主表的原因：
@@ -551,25 +601,26 @@ conda run -n gflow python -B -m flow_generation.generate_liteflownet_flow --data
    - 当前状态：官方 IFRNet VFI checkpoint 已补，等待 GPU 空闲后运行表 1 IFRNet 正式评估；`pretrained/LiteFlowNet.pth` 只用于 pseudo-flow / LiteFlowNet，不可作为 IFRNet baseline。
 12. 重评 SGM-VFI 和 BiM-VFI 到新 split / 新指标。
 13. [code downloaded] `third_party/GIMM-VFI` 已存在；仍需补 GIMM-VFI-F wrapper 并跑表 1。
+14. Table 6 real benchmark 入口已补：`scripts/eval_real.py`。后续正式运行 6 个方法，对 6 个 real sequences 分别推理，分别保存结果，再汇总六序列平均指标。
 
 第二阶段跑模型规模消融和部署表：
 
-14. [done] 跑 AMT-S / AMT-G vanilla。
-15. 训练 AMT-S / AMT-G T2exture。
-16. 评估 AMT-S/L/G 的 vanilla 和 T2exture。
-17. 补 latency / FLOPs profiling，填表 5。
+15. [done] 跑 AMT-S / AMT-G vanilla。
+16. 训练 AMT-S / AMT-G T2exture。
+17. 评估 AMT-S/L/G 的 vanilla 和 T2exture。
+18. latency / FLOPs profiling 入口已补：`scripts/profile_deployment.py`。后续正式运行并填表 5。
 
 第三阶段再跑额外消融：
 
-18. 跑 Table 3：Context Passive Number per side = 1..10。
-19. 补 variable active stride dataset。
-20. 在 `dataset_roi` 下生成 Table 4 的全套 pseudo-flow set：`flow/s02...flow/s11`，其中 `flow/s10` 已由裁剪复用得到，只做覆盖检查。
-21. 跑 Table 4 active frame sparsity。
-22. 暂时不跑 `w/o L_flow`；loss 相关探索等主表和 Table 4 稳定后再决定是否追加。
+19. 跑 Table 3：Context Passive Number per side = 1..10。
+20. 补 variable active stride dataset。
+21. 在 `dataset_roi` 下生成 Table 4 的全套 pseudo-flow set：`flow/s02...flow/s11`，其中 `flow/s10` 已由裁剪复用得到，只做覆盖检查。
+22. 跑 Table 4 active frame sparsity。
+23. 暂时不跑 `w/o L_flow`；loss 相关探索等主表和 Table 4 稳定后再决定是否追加。
 
 ## 8. 当前不建议做的事
 
-- 不把 real transfer 混进当前 synthetic-only 表格。
+- 不做 real transfer / real finetune；Table 6 只做 synthetic-trained models 的真实序列测试。
 - 不把旧 split 的结果直接填进论文主表。
 - 不把 `L_edge / L_temp / L_flow` 的旧探索结果说成最终主贡献。
 - 当前不做 `w/o L_flow`。
