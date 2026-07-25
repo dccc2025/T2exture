@@ -40,7 +40,7 @@ class TrainConfig:
     passive_context: int = 4
     active_stride: int = 10
     sample_passive_context: int | None = None
-    require_dataset_roi: bool = True
+    require_datasets_root: bool = True
     adapter_iterations: int = 10_000
     finetune_iterations: int = 5_000
     layerwise_lr_decay: float = 0.8
@@ -75,8 +75,8 @@ def resolve_sample_passive_context(config: Mapping[str, Any], passive_context: i
 
 def validate_runtime_config(config: Mapping[str, Any], data_root: Path) -> None:
     """Fail early on formal-run settings that would silently mix protocols."""
-    if bool(config.get('require_dataset_roi', True)) and data_root.resolve().name != 'dataset_roi':
-        raise ValueError('Formal runs require --data-root dataset_roi. Set require_dataset_roi: false only for debugging.')
+    if bool(config.get('require_datasets_root', True)) and data_root.resolve().name != 'datasets':
+        raise ValueError('Formal runs require --data-root datasets. Set require_datasets_root: false only for debugging.')
     active_stride = int(config.get('active_stride', 10))
     flow_dir = config.get('pseudo_flow_dir')
     if not flow_dir:

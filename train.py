@@ -16,7 +16,6 @@ from torch.utils.data import DataLoader
 from config import resolve_sample_passive_context, validate_runtime_config
 from data import TextureDataset
 from losses.loss import CompositeLoss
-from metrics import batch_psnr
 from model import build_t2texture_model
 
 
@@ -76,6 +75,12 @@ def move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     """Move tensor values to the training device without touching metadata fields."""
     non_blocking = device.type == 'cuda'
     return {key: value.to(device, non_blocking=non_blocking) if torch.is_tensor(value) else value for key, value in batch.items()}
+
+
+def batch_psnr(prediction: torch.Tensor, target: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
+    """Return one PSNR value per sample for tensors in [0, 1]."""
+    mse = (prediction - target).pow(2).flatten(1).mean(dim=1).clamp_min(eps)
+    return -10.0 * torch.log10(mse)
 
 
 def resolve_data_path(root: Path, value: str | Path) -> Path:
