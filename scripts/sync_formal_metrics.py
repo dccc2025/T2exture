@@ -12,6 +12,7 @@ from typing import Any
 MAIN_METRIC_KEYS = ('PSNR', 'SSIM', 'Edge-FI@2px', 'IE', 'NIE')
 REAL_METRIC_KEYS = ('En', 'AG', 'SF', 'SD', 'SCD', 'PI')
 DEPLOYMENT_METRIC_KEYS = ('Latency', 'FLOPs', 'Params', 'Trainable Params')
+FULL_FIELDNAMES = ['table', 'experiment', 'label', 'status', *MAIN_METRIC_KEYS, *REAL_METRIC_KEYS, *DEPLOYMENT_METRIC_KEYS, 'metrics_path', 'runtime_path']
 STATIC_RUNTIME_VALUES = {
     ('table01_prior', 'ifrnet'): {'Params': '5.00M'},
     ('table01_prior', 'sgm-vfi'): {'Params': '20.80M'},
@@ -111,6 +112,13 @@ def fallback_metrics_path(outputs_root: Path, table_id: str, exp_id: str) -> Pat
     return None
 
 
+def fallback_runtime_path(outputs_root: Path, table_id: str, exp_id: str) -> Path | None:
+    """Return a runtime source shared by another formal table when appropriate."""
+    if table_id == 'table02_amt_size':
+        return outputs_root / 'table05_deployment' / exp_id / 'runtime.json'
+    return None
+
+
 def find_runtime(exp_dir: Path) -> tuple[dict[str, Any] | None, Path | None]:
     candidates = [
         exp_dir / 'runtime.json',
@@ -143,6 +151,11 @@ def collect_rows(outputs_root: Path) -> list[dict[str, str]]:
                     metrics = read_json(fallback_path)
                     metrics_path = fallback_path if metrics is not None else None
             runtime, runtime_path = find_runtime(exp_dir)
+            if runtime is None:
+                fallback_path = fallback_runtime_path(outputs_root, table_id, exp_id)
+                if fallback_path is not None:
+                    runtime = read_json(fallback_path)
+                    runtime_path = fallback_path if runtime is not None else None
             overall = metrics.get('overall', {}) if metrics else {}
             runtime_values = runtime.get('overall', runtime) if runtime else {}
             runtime_values = {**STATIC_RUNTIME_VALUES.get((table_id, exp_id), {}), **runtime_values}
@@ -170,9 +183,8 @@ def collect_rows(outputs_root: Path) -> list[dict[str, str]]:
 
 def write_csv(rows: list[dict[str, str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ['table', 'experiment', 'label', 'status', *MAIN_METRIC_KEYS, *REAL_METRIC_KEYS, *DEPLOYMENT_METRIC_KEYS, 'metrics_path', 'runtime_path']
     with path.open('w', newline='', encoding='utf-8') as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=FULL_FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -196,12 +208,91 @@ def markdown_table(rows: list[dict[str, str]]) -> str:
     return '\n'.join(lines) + '\n'
 
 
+def table_number(exp_id: str) -> str:
+    """Return the numeric suffix used by context/sparsity ablation rows."""
+    return str(int(exp_id.rsplit('-', 1)[1]))
+
+
+def train_total_params(row: dict[str, str]) -> str:
+    """Format trainable and total parameters as one paper-table field."""
+    trainable = row.get('Trainable Params', '')
+    total = row.get('Params', '')
+    if not trainable and not total:
+        return ''
+    if total.endswith('M'):
+        return f'{trainable} / {total}' if trainable else total
+    return f'{trainable}M / {total}M' if trainable else f'{total}M'
+
+
+def paper_table_rows(table_id: str, rows: list[dict[str, str]]) -> tuple[list[str], list[dict[str, str]]]:
+    """Return table-specific columns and rows without irrelevant empty fields."""
+    if table_id == 'table01_prior':
+        columns = ['Method', 'Params', *MAIN_METRIC_KEYS]
+        return columns, [{'Method': row['label'], 'Params': row['Params'], **{key: row[key] for key in MAIN_METRIC_KEYS}} for row in rows]
+    if table_id == 'table02_amt_size':
+        columns = ['Model', 'Train/Total Params', *MAIN_METRIC_KEYS]
+        return columns, [
+            {'Model': row['label'], 'Train/Total Params': train_total_params(row), **{key: row[key] for key in MAIN_METRIC_KEYS}}
+            for row in rows
+        ]
+    if table_id == 'table03_passive_context':
+        columns = ['Context Passive Number', *MAIN_METRIC_KEYS]
+        return columns, [
+            {'Context Passive Number': table_number(row['experiment']), **{key: row[key] for key in MAIN_METRIC_KEYS}}
+            for row in rows
+        ]
+    if table_id == 'table04_active_sparsity':
+        columns = ['Passive Frames Between Active Frames', *MAIN_METRIC_KEYS]
+        return columns, [
+            {'Passive Frames Between Active Frames': str(int(table_number(row['experiment'])) - 1), **{key: row[key] for key in MAIN_METRIC_KEYS}}
+            for row in rows
+        ]
+    if table_id == 'table05_deployment':
+        columns = ['Model', 'Train/Total Params', 'PSNR', 'Latency', 'FLOPs']
+        return columns, [
+            {
+                'Model': row['label'],
+                'Train/Total Params': train_total_params(row),
+                'PSNR': row['PSNR'],
+                'Latency': row['Latency'],
+                'FLOPs': row['FLOPs'],
+            }
+            for row in rows
+        ]
+    if table_id == 'table06_real_benchmark':
+        columns = ['Method', 'Params', *REAL_METRIC_KEYS]
+        return columns, [{'Method': row['label'], 'Params': row['Params'], **{key: row[key] for key in REAL_METRIC_KEYS}} for row in rows]
+    return FULL_FIELDNAMES, rows
+
+
+def write_table_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
+    """Write one paper-ready table CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', newline='', encoding='utf-8') as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def paper_markdown_table(columns: list[str], rows: list[dict[str, str]]) -> str:
+    """Return one paper-ready Markdown table."""
+    align = ['---', *['---:' for _ in columns[1:]]]
+    lines = [
+        '| ' + ' | '.join(columns) + ' |',
+        '| ' + ' | '.join(align) + ' |',
+    ]
+    for row in rows:
+        lines.append('| ' + ' | '.join(row.get(column, '') for column in columns) + ' |')
+    return '\n'.join(lines) + '\n'
+
+
 def write_per_table_outputs(rows: list[dict[str, str]], output_dir: Path) -> dict[str, dict[str, int]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     summary: dict[str, dict[str, int]] = {}
     for table_id, table_rows in rows_by_table(rows).items():
-        write_csv(table_rows, output_dir / f'{table_id}.csv')
-        (output_dir / f'{table_id}.md').write_text(markdown_table(table_rows), encoding='utf-8')
+        columns, paper_rows = paper_table_rows(table_id, table_rows)
+        write_table_csv(output_dir / f'{table_id}.csv', columns, paper_rows)
+        (output_dir / f'{table_id}.md').write_text(paper_markdown_table(columns, paper_rows), encoding='utf-8')
         done = sum(1 for row in table_rows if row['status'] == 'done')
         summary[table_id] = {'rows': len(table_rows), 'done': done, 'missing': len(table_rows) - done}
     return summary
