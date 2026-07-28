@@ -1,4 +1,4 @@
-"""Fine-tune T2exture AMT-L with the fixed three-term objective."""
+"""Fine-tune T2exture-S/L/G with the fixed three-term objective."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from config import resolve_sample_passive_context, validate_runtime_config
 from data import TextureDataset
 from losses.loss import CompositeLoss
 from model import build_t2texture_model
+from utils.checkpoint import torch_load_portable
+
+
+ARCHITECTURE_VERSION = 'main_figure_fourier_conv_p_v2'
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +45,7 @@ def seed_everything(seed: int) -> None:
 
 
 def make_optimizer(model: torch.nn.Module, base_lr: float, decay: float) -> torch.optim.Optimizer:
-    """Create parameter groups with lower rates for earlier AMT-L backbone layers."""
+    """Create parameter groups with lower rates for earlier AMT backbone layers."""
     groups = []
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
@@ -91,10 +95,37 @@ def resolve_data_path(root: Path, value: str | Path) -> Path:
 
 def load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
     """Load a checkpoint and require the training checkpoint dictionary format."""
-    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    checkpoint = torch_load_portable(path, device)
     if not isinstance(checkpoint, dict) or 'model' not in checkpoint:
         raise ValueError(f'Expected a training checkpoint with a model state dict: {path}')
     return checkpoint
+
+
+def checkpoint_payload(
+    model: torch.nn.Module,
+    config: dict[str, Any],
+    backbone: str,
+    global_step: int,
+    phase: str,
+    best_psnr: float,
+    step: int | None = None,
+    optimizer: torch.optim.Optimizer | None = None,
+) -> dict[str, Any]:
+    """Build the checkpoint dictionary used by best.pt and last.pt."""
+    payload: dict[str, Any] = {
+        'model': model.state_dict(),
+        'config': config,
+        'backbone': backbone,
+        'architecture': ARCHITECTURE_VERSION,
+        'global_step': global_step,
+        'phase': phase,
+        'best_psnr': best_psnr,
+    }
+    if step is not None:
+        payload['step'] = step
+    if optimizer is not None:
+        payload['optimizer'] = optimizer.state_dict()
+    return payload
 
 
 @torch.no_grad()
@@ -122,8 +153,9 @@ def main() -> None:
     args = parse_args()
     config = yaml.safe_load(args.config.read_text())
     validate_runtime_config(config, args.data_root)
+    run_config = {**config, 'backbone': args.backbone, 'architecture': ARCHITECTURE_VERSION}
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
+    (args.output_dir / 'config.json').write_text(json.dumps(run_config, indent=2) + '\n')
     seed_everything(int(config['seed']))
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     if device.type == 'cuda':
@@ -181,13 +213,19 @@ def main() -> None:
                     **{key: float(value.detach().cpu()) for key, value in losses.items()},
                 }
                 print(json.dumps(record), flush=True)
-                torch.save({'model': model.state_dict(), 'optimizer': optimizer.state_dict(), 'config': config, 'step': step + 1, 'global_step': global_step, 'phase': phase, 'best_psnr': best_psnr}, args.output_dir / 'last.pt')
+                torch.save(
+                    checkpoint_payload(model, run_config, args.backbone, global_step, phase, best_psnr, step=step + 1, optimizer=optimizer),
+                    args.output_dir / 'last.pt',
+                )
             if (step + 1) % valid_interval == 0 or step + 1 == iterations:
                 valid_record = {'phase': phase, 'step': step + 1, 'global_step': global_step, **validate(model, criterion, valid_loader, device)}
                 print(json.dumps(valid_record), flush=True)
                 if valid_record['valid_psnr'] > best_psnr:
                     best_psnr = valid_record['valid_psnr']
-                    torch.save({'model': model.state_dict(), 'config': config, 'best_psnr': best_psnr, 'global_step': global_step, 'phase': phase}, args.output_dir / 'best.pt')
+                    torch.save(
+                        checkpoint_payload(model, run_config, args.backbone, global_step, phase, best_psnr),
+                        args.output_dir / 'best.pt',
+                    )
 
 
 if __name__ == '__main__':

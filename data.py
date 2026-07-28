@@ -9,8 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from config import passive_context_ids
-
-DEFAULT_FLOW_DIR = Path('flow') / 's10'
+from flow_generation import load_pseudo_flow, validate_pseudo_flow_coverage
 
 
 def read_split(path: Path) -> list[str]:
@@ -35,67 +34,6 @@ def _load_frame(root: Path, scene: str, modality: str, frame_id: int) -> np.ndar
     if image.ndim != 2:
         raise ValueError(f'Expected a 2-D {modality} frame at {path}, got {image.shape}')
     return image
-
-
-def _flow_file_name(left_id: int, target_id: int, right_id: int) -> str:
-    """Return the canonical target-to-endpoints flow file name."""
-    return f'{left_id:03d}_{target_id:03d}_{right_id:03d}.npz'
-
-
-def _resolve_pseudo_flow_root(root: Path, pseudo_flow_root: Path | None) -> Path:
-    """Resolve a pseudo-flow root relative to the dataset root."""
-    if pseudo_flow_root is None:
-        return root / DEFAULT_FLOW_DIR
-    return pseudo_flow_root if pseudo_flow_root.is_absolute() else root / pseudo_flow_root
-
-
-def _pseudo_flow_candidates(root: Path, scene: str, left_id: int, target_id: int, right_id: int, pseudo_flow_root: Path | None) -> list[Path]:
-    """Return canonical and legacy flow-label candidates for one target."""
-    flow_root = _resolve_pseudo_flow_root(root, pseudo_flow_root)
-    name = _flow_file_name(left_id, target_id, right_id)
-    candidates = [flow_root / scene / name]
-    if flow_root == root / DEFAULT_FLOW_DIR:
-        legacy = root / 'sim' / scene / 'flow' / name
-        if legacy != candidates[0]:
-            candidates.append(legacy)
-    return candidates
-
-
-def _load_pseudo_flow(root: Path, scene: str, left_id: int, target_id: int, right_id: int, pseudo_flow_root: Path | None) -> np.ndarray:
-    """Load target-to-endpoint pseudo flows and concatenate them as [4, H, W]."""
-    candidates = _pseudo_flow_candidates(root, scene, left_id, target_id, right_id, pseudo_flow_root)
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if path is None:
-        checked = '\n'.join(str(candidate) for candidate in candidates)
-        raise FileNotFoundError(f'Missing pseudo-flow label. Checked:\n{checked}')
-
-    with np.load(path) as data:
-        missing = {'flow0', 'flow1'} - set(data.files)
-        if missing:
-            raise ValueError(f'Flow file {path} is missing keys: {sorted(missing)}')
-        flow0 = data['flow0'].astype(np.float32)
-        flow1 = data['flow1'].astype(np.float32)
-    if flow0.ndim != 3 or flow1.ndim != 3 or flow0.shape[0] != 2 or flow1.shape[0] != 2:
-        raise ValueError(f'Expected flow0/flow1 shapes [2, H, W] at {path}, got {flow0.shape} and {flow1.shape}')
-    if flow0.shape[1:] != flow1.shape[1:]:
-        raise ValueError(f'Flow spatial shapes do not match at {path}: {flow0.shape} vs {flow1.shape}')
-    return np.concatenate((flow0, flow1), axis=0)
-
-
-def _validate_pseudo_flow_coverage(root: Path, samples: list[tuple[str, int, int]], pseudo_flow_root: Path | None, active_stride: int, preview: int = 8) -> None:
-    """Fail before training when the split is not covered by pseudo-flow labels."""
-    missing = []
-    for scene, left_id, offset in samples:
-        target_id = left_id + offset
-        right_id = left_id + active_stride
-        candidates = _pseudo_flow_candidates(root, scene, left_id, target_id, right_id, pseudo_flow_root)
-        if not any(path.is_file() for path in candidates):
-            missing.append(candidates[0])
-    if not missing:
-        return
-    shown = '\n'.join(str(path) for path in missing[:preview])
-    suffix = '' if len(missing) <= preview else f'\n... and {len(missing) - preview} more missing pseudo-flow files'
-    raise FileNotFoundError(f'Missing {len(missing)} pseudo-flow labels:\n{shown}{suffix}')
 
 
 def _normalise(image: np.ndarray) -> np.ndarray:
@@ -158,7 +96,7 @@ class TextureDataset(Dataset):
             for offset in range(1, active_stride)
             if _has_valid_passive_context(left + offset, self.sample_passive_context)
         ]
-        _validate_pseudo_flow_coverage(self.root, self.items, self.pseudo_flow_root, active_stride=self.active_stride)
+        validate_pseudo_flow_coverage(self.root, self.items, self.pseudo_flow_root, active_stride=self.active_stride)
 
     def __len__(self) -> int:
         """Return the number of valid interval-target samples."""
@@ -174,7 +112,7 @@ class TextureDataset(Dataset):
         texture1 = _normalise(_load_frame(self.root, scene, 'texture', right))
         target = _normalise(_load_frame(self.root, scene, 'texture', target_id))
         passive = [_normalise(_load_frame(self.root, scene, 'passive', frame_id)) for frame_id in context_ids]
-        flow = _load_pseudo_flow(self.root, scene, left, target_id, right, self.pseudo_flow_root)
+        flow = load_pseudo_flow(self.root, scene, left, target_id, right, self.pseudo_flow_root)
         texture0, texture1, target, *rest = _crop([texture0, texture1, target, *passive, flow], self.crop_size, self.random_crop)
         passive, flow = rest[:-1], rest[-1]
         tensor = lambda image: torch.from_numpy(image.copy()).unsqueeze(0)

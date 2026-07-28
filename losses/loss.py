@@ -16,7 +16,7 @@ class Loss(nn.Module):
         self.keys = keys
         self.mapping = mapping
         if isinstance(mapping, dict):
-            self.mapping = {k: v for k, v in mapping if v in keys}
+            self.mapping = {k: v for k, v in mapping.items() if v in keys}
 
     
     def forward(self, **kwargs):

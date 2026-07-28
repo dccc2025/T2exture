@@ -1,0 +1,24 @@
+passive_context: 4
+active_stride: 9
+sample_passive_context:
+require_datasets_root: true
+pseudo_flow_dir: flow/s09
+adapter_iterations: 10000
+finetune_iterations: 5000
+batch_size: 4
+valid_batch_size: 1
+eval_batch_size: 1
+crop_size: 384
+adapter_lr: 0.0002
+finetune_lr: 0.00005
+layerwise_lr_decay: 0.8
+num_workers: 16
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 4
+seed: 2026
+valid_interval: 500
+loss:
+  charbonnier: 1.0
+  css: 0.1
+  flow: 0.001

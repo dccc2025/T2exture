@@ -75,7 +75,8 @@ def resolve_sample_passive_context(config: Mapping[str, Any], passive_context: i
 
 def validate_runtime_config(config: Mapping[str, Any], data_root: Path) -> None:
     """Fail early on formal-run settings that would silently mix protocols."""
-    if bool(config.get('require_datasets_root', True)) and data_root.resolve().name != 'datasets':
+    require_datasets_root = config.get('require_datasets_root', config.get('require_dataset_roi', True))
+    if bool(require_datasets_root) and data_root.resolve().name != 'datasets':
         raise ValueError('Formal runs require --data-root datasets. Set require_datasets_root: false only for debugging.')
     active_stride = int(config.get('active_stride', 10))
     flow_dir = config.get('pseudo_flow_dir')
