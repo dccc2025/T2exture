@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--pretrained', type=Path, default=None, help='Optional AMT init checkpoint for legacy partial checkpoints.')
     parser.add_argument('--data-root', type=Path, default=Path('datasets'))
     parser.add_argument('--config', type=Path, default=Path('train.yaml'))
-    parser.add_argument('--real-config', type=Path, default=Path('configs/formal/table06/real-benchmark.yaml'))
+    parser.add_argument('--real-config', type=Path, default=Path('configs/real.yaml'))
     parser.add_argument('--split', choices=['train', 'valid', 'test'], default='test')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--batch-size', type=int, default=1)

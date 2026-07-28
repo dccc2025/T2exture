@@ -1,4 +1,4 @@
-"""Train, evaluate, and visualize the three release T2exture checkpoints."""
+"""Train, evaluate, and visualize T2exture-S/L/G."""
 
 from __future__ import annotations
 
@@ -10,20 +10,15 @@ from pathlib import Path
 
 import yaml
 
-
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from utils.checkpoint import torch_load_portable
 
-PYTHON = sys.executable
-DATA_ROOT = ROOT / 'datasets'
-CONFIG = ROOT / 'train.yaml'
-OUTPUT_ROOT = ROOT / 'outputs' / 'final' / 'release'
-LOG_ROOT = ROOT / 'outputs' / 'final' / '_logs'
 
-RELEASE_MODELS = {
+PYTHON = sys.executable
+MODELS = {
     's': {'backbone': 'amt-s', 'pretrained': Path('pretrained/amt-s.pth'), 'label': 'T2exture-S'},
     'l': {'backbone': 'amt-l', 'pretrained': Path('pretrained/amt-l.pth'), 'label': 'T2exture-L'},
     'g': {'backbone': 'amt-g', 'pretrained': Path('pretrained/amt-g.pth'), 'label': 'T2exture-G'},
@@ -36,7 +31,6 @@ def now_stamp() -> str:
 
 
 def run(command: list[str], log_path: Path) -> None:
-    """Run one command while streaming and saving logs."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print(f'RUN {" ".join(command)}', flush=True)
     with log_path.open('w', encoding='utf-8') as handle:
@@ -62,11 +56,10 @@ def run(command: list[str], log_path: Path) -> None:
         raise subprocess.CalledProcessError(return_code, command)
 
 
-def training_complete(best: Path) -> bool:
-    """Return true only when the checkpoint reached the full release schedule."""
+def training_complete(best: Path, config_path: Path) -> bool:
     if not best.is_file():
         return False
-    config = yaml.safe_load(CONFIG.read_text(encoding='utf-8'))
+    config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
     expected_step = int(config['adapter_iterations']) + int(config['finetune_iterations'])
     try:
         checkpoint = torch_load_portable(best, 'cpu')
@@ -78,35 +71,35 @@ def training_complete(best: Path) -> bool:
     return checkpoint.get('phase') == 'finetune' and int(checkpoint.get('global_step', 0)) >= expected_step
 
 
-def run_one(variant: str) -> None:
-    spec = RELEASE_MODELS[variant]
-    exp_dir = OUTPUT_ROOT / f't2exture-{variant}'
+def run_one(variant: str, data_root: Path, config_path: Path, output_root: Path, log_root: Path) -> None:
+    spec = MODELS[variant]
+    exp_dir = output_root / f't2exture-{variant}'
     best = exp_dir / 'best.pt'
     metrics = exp_dir / 'test' / 'metrics.json'
-    log_prefix = f'release_t2exture_{variant}_{now_stamp()}'
+    log_prefix = f't2exture_{variant}_{now_stamp()}'
 
-    if not training_complete(best):
+    if not training_complete(best, config_path):
         command = [
             PYTHON,
             '-B',
             'train.py',
             '--data-root',
-            str(DATA_ROOT),
+            str(data_root),
             '--pretrained',
-            str(spec['pretrained']),
+            str(ROOT / spec['pretrained']),
             '--backbone',
             str(spec['backbone']),
             '--output-dir',
             str(exp_dir),
             '--config',
-            str(CONFIG),
+            str(config_path),
         ]
         last = exp_dir / 'last.pt'
         if last.is_file():
             command.extend(['--resume', str(last)])
-        run(command, LOG_ROOT / f'{log_prefix}_train.log')
+        run(command, log_root / f'{log_prefix}_train.log')
     else:
-        print(f'SKIP train {exp_dir}: release checkpoint is complete', flush=True)
+        print(f'SKIP train {exp_dir}: checkpoint is complete', flush=True)
 
     if not metrics.is_file():
         run(
@@ -115,7 +108,7 @@ def run_one(variant: str) -> None:
                 '-B',
                 'eval.py',
                 '--data-root',
-                str(DATA_ROOT),
+                str(data_root),
                 '--checkpoint',
                 str(best),
                 '--backbone',
@@ -125,9 +118,9 @@ def run_one(variant: str) -> None:
                 '--output-dir',
                 str(exp_dir / 'test'),
                 '--config',
-                str(CONFIG),
+                str(config_path),
             ],
-            LOG_ROOT / f'{log_prefix}_eval.log',
+            log_root / f'{log_prefix}_eval.log',
         )
     else:
         print(f'SKIP eval {exp_dir}: metrics.json exists', flush=True)
@@ -141,28 +134,38 @@ def run_one(variant: str) -> None:
                 '--eval-dir',
                 str(exp_dir / 'test'),
                 '--output-dir',
-                str(exp_dir / 'test/vis'),
+                str(exp_dir / 'test' / 'vis'),
                 '--method-label',
                 str(spec['label']),
                 '--max-frames-per-scene',
                 '5',
             ],
-            LOG_ROOT / f'{log_prefix}_vis.log',
+            log_root / f'{log_prefix}_vis.log',
         )
     else:
-        print(f'SKIP vis {exp_dir}: vis manifest exists', flush=True)
+        print(f'SKIP vis {exp_dir}: vis output exists', flush=True)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variants', nargs='+', choices=DEFAULT_VARIANTS, default=DEFAULT_VARIANTS)
+    parser.add_argument('--data-root', type=Path, default=ROOT / 'datasets')
+    parser.add_argument('--config', type=Path, default=ROOT / 'train.yaml')
+    parser.add_argument('--output-root', type=Path, default=ROOT / 'outputs' / 'final' / 'ours')
+    parser.add_argument('--log-root', type=Path, default=ROOT / 'outputs' / 'final' / '_logs')
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     for variant in args.variants:
-        run_one(variant)
+        run_one(
+            variant,
+            args.data_root.resolve(),
+            args.config.resolve(),
+            args.output_root.resolve(),
+            args.log_root.resolve(),
+        )
 
 
 if __name__ == '__main__':

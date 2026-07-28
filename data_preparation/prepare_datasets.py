@@ -1,4 +1,4 @@
-"""Prepare the fixed-size dataset root used by formal synthetic experiments."""
+"""Prepare the fixed-size synthetic dataset root used by T2exture."""
 
 from __future__ import annotations
 

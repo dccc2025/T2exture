@@ -74,10 +74,10 @@ def resolve_sample_passive_context(config: Mapping[str, Any], passive_context: i
 
 
 def validate_runtime_config(config: Mapping[str, Any], data_root: Path) -> None:
-    """Fail early on formal-run settings that would silently mix protocols."""
+    """Fail early when a run points at the wrong prepared dataset root."""
     require_datasets_root = config.get('require_datasets_root', config.get('require_dataset_roi', True))
     if bool(require_datasets_root) and data_root.resolve().name != 'datasets':
-        raise ValueError('Formal runs require --data-root datasets. Set require_datasets_root: false only for debugging.')
+        raise ValueError('Use --data-root datasets for the prepared T2exture data. Set require_datasets_root: false only for debugging.')
     active_stride = int(config.get('active_stride', 10))
     flow_dir = config.get('pseudo_flow_dir')
     if not flow_dir:

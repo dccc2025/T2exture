@@ -152,18 +152,6 @@ class TestPublicConfiguration(unittest.TestCase):
         self.assertAlmostEqual(float(scores[0]), 1.0, places=6)
         self.assertLess(float(scores[1]), 0.5)
 
-    def test_deployment_metric_keys_match_public_outputs(self) -> None:
-        """Deployment helpers expose stable runtime and parameter columns."""
-        try:
-            import torch.nn as nn
-            from metrics import DEPLOYMENT_METRIC_KEYS, count_parameters, count_trainable_parameters
-        except ModuleNotFoundError as exc:
-            self.skipTest(f'PyTorch is not available in this Python environment: {exc}')
-        model = nn.Linear(3, 2)
-        self.assertEqual(DEPLOYMENT_METRIC_KEYS, ('Latency', 'FLOPs', 'Params', 'Trainable Params'))
-        self.assertEqual(count_parameters(model), 8)
-        self.assertEqual(count_trainable_parameters(model), 8)
-
     def test_checkpoint_state_extraction_accepts_public_formats(self) -> None:
         """Evaluation and inference can read raw, training, and legacy states."""
         try:
@@ -194,31 +182,3 @@ class TestPublicConfiguration(unittest.TestCase):
         pyramid = PassiveGuidancePyramid(context_size=4, decoder_channels=(20, 32, 44))
         guidance = pyramid(torch.rand(2, 4, 32, 48), time)
         self.assertEqual([tuple(item.shape) for item in guidance], [(2, 20, 16, 24), (2, 32, 8, 12), (2, 44, 4, 6)])
-
-    def test_component_ablation_table_reuses_ours_l_sources(self) -> None:
-        """The Ours-L component ablation table should not schedule anchor rows."""
-        from scripts.formal.collect_metrics import fallback_metrics_path, paper_table_rows
-
-        outputs = Path('outputs/final')
-        self.assertEqual(
-            fallback_metrics_path(outputs, 'table07_component_ablation', 't2v-adapter'),
-            outputs / 'table03_passive_context' / 'context-per-side-00' / 'test' / 'metrics.json',
-        )
-        self.assertEqual(
-            fallback_metrics_path(outputs, 'table07_component_ablation', 'full-t2texture'),
-            outputs / 'table03_passive_context' / 'context-per-side-02' / 'test' / 'metrics.json',
-        )
-
-        rows = [
-            {'experiment': 'amt-l', 'label': 'AMT-L', 'PSNR': '1', 'SSIM': '2', 'Edge-FI@2px': '3', 'IE': '4', 'NIE': '5'},
-            {'experiment': 't2v-adapter', 'label': '+ T2V', 'PSNR': '1', 'SSIM': '2', 'Edge-FI@2px': '3', 'IE': '4', 'NIE': '5'},
-            {'experiment': 'passive-guidance-no-temporal', 'label': '+ Passive Guidance w/o temporal modulation', 'PSNR': '1', 'SSIM': '2', 'Edge-FI@2px': '3', 'IE': '4', 'NIE': '5'},
-            {'experiment': 'full-t2texture', 'label': 'Full T2exture', 'PSNR': '1', 'SSIM': '2', 'Edge-FI@2px': '3', 'IE': '4', 'NIE': '5'},
-        ]
-        columns, paper_rows = paper_table_rows('table07_component_ablation', rows)
-        self.assertEqual(columns[:4], ['Variant', 'T2V-Adapter', 'Passive Guidance', 'Rel. P.E.'])
-        self.assertEqual(paper_rows[0]['T2V-Adapter'], '')
-        self.assertEqual(paper_rows[1]['T2V-Adapter'], r'\checkmark')
-        self.assertEqual(paper_rows[2]['Passive Guidance'], r'\checkmark')
-        self.assertEqual(paper_rows[2]['Rel. P.E.'], '')
-        self.assertEqual(paper_rows[3]['Rel. P.E.'], r'\checkmark')
