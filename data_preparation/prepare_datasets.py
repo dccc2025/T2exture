@@ -143,40 +143,6 @@ def save_cropped_flow(source_dir: Path, output_dir: Path, box: tuple[int, int, i
     return count
 
 
-def normalise_to_uint8(image: np.ndarray) -> np.ndarray:
-    image = image.astype(np.float32)
-    finite = np.isfinite(image)
-    if not finite.any():
-        return np.zeros(image.shape, dtype=np.uint8)
-    minimum = float(image[finite].min())
-    maximum = float(image[finite].max())
-    if maximum <= minimum:
-        return np.zeros(image.shape, dtype=np.uint8)
-    return np.clip((image - minimum) / (maximum - minimum) * 255.0, 0, 255).astype(np.uint8)
-
-
-def write_preview(texture_dir: Path, preview_path: Path, box: tuple[int, int, int, int], output_shape: tuple[int, int]) -> None:
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
-        return
-
-    files = numbered_npy_files(texture_dir)
-    projection = None
-    for file in files:
-        image = load_frame(file).astype(np.float32)
-        projection = image if projection is None else np.maximum(projection, image)
-    if projection is None:
-        return
-    crop = crop_array(projection, box, output_shape)
-    rgb = np.repeat(normalise_to_uint8(crop)[..., None], 3, axis=2)
-    image = Image.fromarray(rgb)
-    draw = ImageDraw.Draw(image)
-    draw.rectangle((0, 0, output_shape[1] - 1, output_shape[0] - 1), outline=(255, 0, 0), width=3)
-    preview_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(preview_path)
-
-
 def prepare_output_root(output_root: Path, overwrite: bool) -> None:
     if not output_root.exists():
         output_root.mkdir(parents=True)
@@ -233,7 +199,6 @@ def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
         texture_count = save_cropped_frames(texture_dir, output_root / 'sim' / scene / 'texture', box, output_shape)
         passive_count = save_cropped_frames(passive_dir, output_root / 'sim' / scene / 'passive', box, output_shape)
         flow_count = save_cropped_flow(source_flow_root / scene, output_flow_root / scene, box, output_shape)
-        write_preview(texture_dir, output_root / 'preview' / f'{scene}.png', box, output_shape)
 
         y_min, x_min, y_max, x_max = bbox
         top, left, bottom, right = box

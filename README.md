@@ -73,7 +73,6 @@ datasets/
   valid.txt
   test.txt
   dataset_manifest.json
-  preview/
   sim/<scene>/
     texture/001.npy
     passive/001.npy

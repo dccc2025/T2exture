@@ -23,7 +23,6 @@ EXPECTED_FRAME_SHAPE = (640, 960)
 EXPECTED_FRAMES_PER_SCENE = 180
 EXPECTED_SCENES = 32
 EXPECTED_S10_FLOW_FILES = 4892
-EXPECTED_PREVIEW_FILES = 32
 EXPECTED_SPLIT_SCENES = {'train': 20, 'valid': 4, 'test': 8}
 EXPECTED_SPLIT_SAMPLES = {'train': 3040, 'valid': 608, 'test': 1216}
 EXPECTED_CONFIG = {
@@ -103,12 +102,6 @@ def check_manifest(data_root: Path, errors: list[str]) -> None:
 
     flow_files = sum(int(scene.get('flow_files', 0)) for scene in scenes.values())
     same(errors, 'flow/s10 files in manifest', flow_files, EXPECTED_S10_FLOW_FILES)
-
-    preview_dir = data_root / 'preview'
-    if preview_dir.is_dir():
-        same(errors, 'preview png count', len(list(preview_dir.glob('*.png'))), EXPECTED_PREVIEW_FILES)
-    else:
-        fail(errors, f'missing {preview_dir}')
 
 
 def check_scene_frames(data_root: Path, scenes: list[str], errors: list[str]) -> None:
