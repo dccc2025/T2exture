@@ -19,7 +19,7 @@ protocol:
     - 161
     - 171
     - 180
-  passive_context: 4
+  passive_context: 5
 
 sequences:
   - bag

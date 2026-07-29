@@ -37,7 +37,7 @@ class LossWeights:
 class TrainConfig:
     """Provide the stable defaults for the two-stage fine-tuning schedule."""
 
-    passive_context: int = 4
+    passive_context: int = 5
     active_stride: int = 10
     sample_passive_context: int | None = None
     require_datasets_root: bool = True
@@ -46,14 +46,14 @@ class TrainConfig:
     layerwise_lr_decay: float = 0.8
 
 
-def passive_context_ids(center_id: int, context_size: int = 4) -> tuple[int, ...]:
-    """Return equal numbers of passive frame IDs before and after ``center_id``."""
-    if context_size < 0 or context_size % 2:
-        raise ValueError('passive_context must be zero or a positive even integer')
+def passive_context_ids(center_id: int, context_size: int = 5) -> tuple[int, ...]:
+    """Return the centered passive structural context ``C_t`` around ``center_id``."""
+    if context_size < 0 or (context_size > 0 and context_size % 2 == 0):
+        raise ValueError('passive_context must be zero or a positive odd integer')
     if context_size == 0:
         return ()
-    half = context_size // 2
-    return tuple(range(center_id - half, center_id)) + tuple(range(center_id + 1, center_id + half + 1))
+    radius = context_size // 2
+    return tuple(range(center_id - radius, center_id + radius + 1))
 
 
 def expected_flow_set(active_stride: int) -> str:

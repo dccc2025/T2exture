@@ -179,6 +179,20 @@ def _resolve_data_root(args: argparse.Namespace, manifest: dict[str, Any]) -> Pa
     raise ValueError('Pass --data-root because manifest.json does not record data_root')
 
 
+def _public_path(path: Path, base: Path | None = None) -> str:
+    """Return a portable slash-separated path for JSON manifests."""
+    resolved = path.resolve()
+    if base is not None:
+        try:
+            return resolved.relative_to(base.resolve()).as_posix()
+        except ValueError:
+            pass
+    try:
+        return resolved.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _select_rows(rows: list[dict[str, str]], scenes: list[str] | None, max_frames_per_scene: int | None) -> dict[str, list[dict[str, str]]]:
     """Group rows by scene and apply optional scene/frame filters."""
     selected: dict[str, list[dict[str, str]]] = defaultdict(list)
@@ -265,6 +279,8 @@ def main() -> None:
     video_dir.mkdir(parents=True, exist_ok=True)
 
     data_root = _resolve_data_root(args, manifest)
+    public_data_root = str(manifest.get('data_root') or _public_path(data_root))
+    public_eval_dir = _public_path(args.eval_dir)
     method_label = args.method_label or str(manifest.get('backbone', 'T2exture'))
     rows_by_scene = _select_rows(_read_frame_rows(args.eval_dir), args.scenes, args.max_frames_per_scene)
 
@@ -295,8 +311,8 @@ def main() -> None:
     all_video = video_dir / 'all_cmp.mp4'
     _write_video(all_video, all_frames, args.fps)
     visual_manifest = {
-        'eval_dir': str(args.eval_dir.resolve()),
-        'data_root': str(data_root.resolve()),
+        'eval_dir': public_eval_dir,
+        'data_root': public_data_root,
         'frames': len(all_frames),
         'scenes': {scene: len(rows) for scene, rows in rows_by_scene.items()},
         'style': {

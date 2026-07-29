@@ -16,7 +16,8 @@ Each `.npz` stores:
 - `flow1`: target-to-right flow, shape `[2, H, W]`
 
 Default training uses `flow/s10`, where `s10` means active anchors are ten
-frames apart.
+frames apart. The generator filters targets with the same centered
+`passive_context: 5` contract used by Stage 2.
 
 Generate the default set:
 

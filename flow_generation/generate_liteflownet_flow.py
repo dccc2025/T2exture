@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--output-dir', type=Path, default=None, help='Explicit pseudo-flow root. Overrides --flow-set.')
     parser.add_argument('--splits', nargs='+', default=['train', 'valid'])
     parser.add_argument('--active-stride', type=int, default=10)
-    parser.add_argument('--context-size', type=int, default=4)
+    parser.add_argument('--context-size', type=int, default=5)
     parser.add_argument('--liteflownet', type=Path, default=Path('third_party/AMT_official/flow_generation/liteflownet/run.py'))
     parser.add_argument('--device', default='cuda')
     return parser.parse_args()
@@ -99,6 +99,14 @@ def output_flow_path(output_root: Path, scene: str, left_id: int, target_id: int
     return output_root / scene / flow_file_name(left_id, target_id, right_id)
 
 
+def public_path(path: Path, root: Path) -> str:
+    """Return a path suitable for public manifests."""
+    try:
+        return str(path.resolve().relative_to(root.resolve())).replace('\\', '/')
+    except ValueError:
+        return path.name
+
+
 @torch.no_grad()
 def generate_scene(root: Path, output_root: Path, scene: str, estimate, active_stride: int, context_size: int) -> tuple[int, int]:
     """Generate all target-to-endpoint pseudo flows for one scene."""
@@ -150,8 +158,8 @@ def main() -> None:
         print(json.dumps({'scene': scene, 'written': scene_written, 'skipped': scene_skipped}), flush=True)
     manifest = {
         'source': 'LiteFlowNet via third_party/AMT_official/flow_generation/liteflownet',
-        'data_root': str(args.data_root),
-        'output_root': str(output_root),
+        'data_root': public_path(args.data_root, Path.cwd()),
+        'output_root': public_path(output_root, Path.cwd()),
         'flow_set': flow_set,
         'splits': args.splits,
         'scenes': scenes,

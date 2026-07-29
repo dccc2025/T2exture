@@ -61,7 +61,7 @@ class DuplicateChannels(nn.Module):
 
 
 class T2VAdapter(nn.Module):
-    """Texture-to-visual adapter: Duplicate -> Conv2d -> SiLU -> Conv2d + Rel. P.E."""
+    """Texture-to-visual adapter: duplicate one texture channel, then refine it."""
 
     def __init__(self, channels: int = 3, hidden_channels: int = 16) -> None:
         super().__init__()
@@ -71,14 +71,13 @@ class T2VAdapter(nn.Module):
             nn.SiLU(),
             nn.Conv2d(hidden_channels, channels, kernel_size=3, padding=1),
         )
-        self.relative_position = FourierConv2d(channels)
         nn.init.zeros_(self.adapter[-1].weight)
         nn.init.zeros_(self.adapter[-1].bias)
 
-    def forward(self, image: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
         """Adapt one texture frame while preserving AMT's pretrained input scale at start."""
         duplicated = self.duplicate(image)
-        return duplicated + self.adapter(duplicated) + self.relative_position(time)
+        return duplicated + self.adapter(duplicated)
 
 
 class ConvP(nn.Module):

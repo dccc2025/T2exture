@@ -70,12 +70,12 @@ class T2textureAMTBase(nn.Module):
         self,
         spec: AMTBackboneSpec,
         pretrained: str | Path | None,
-        passive_context: int = 4,
+        passive_context: int = 5,
         passive_temporal_modulation: bool = True,
     ) -> None:
         super().__init__()
-        if passive_context < 0 or passive_context % 2:
-            raise ValueError('passive_context must be zero or a positive even integer')
+        if passive_context < 0 or (passive_context > 0 and passive_context % 2 == 0):
+            raise ValueError('passive_context must be zero or a positive odd integer')
         self.spec = spec
         self.passive_context = passive_context
         self.t2v_adapter = T2VAdapter()
@@ -167,7 +167,7 @@ class T2textureAMTBase(nn.Module):
         passive_context: torch.Tensor,
         return_flow: bool = False,
     ) -> dict[str, torch.Tensor | list[torch.Tensor]]:
-        """Predict the target texture frame ``I_t``."""
+        """Predict the target texture frame ``X_t``."""
         if self.passive_encoder is None:
             if passive_context.shape[1] != 0:
                 raise ValueError(f'Expected no passive frames, got {passive_context.shape[1]}')
@@ -176,8 +176,8 @@ class T2textureAMTBase(nn.Module):
             self._control = self.passive_encoder(passive_context, time)
         try:
             output = self.backbone(
-                self.t2v_adapter(texture0, time),
-                self.t2v_adapter(texture1, time),
+                self.t2v_adapter(texture0),
+                self.t2v_adapter(texture1),
                 time.view(time.shape[0], 1, 1, 1),
                 eval=not return_flow,
             )

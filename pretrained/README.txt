@@ -2,11 +2,7 @@
 
 Checkpoint files are not tracked in Git.
 
-Hosted T2exture checkpoints:
-
-https://huggingface.co/chenjiashuo/T2exture_model
-
-Recommended local paths:
+T2exture checkpoints:
 
 ```text
 pretrained/t2exture_model/t2exture-s.pt
@@ -14,8 +10,7 @@ pretrained/t2exture_model/t2exture-l.pt
 pretrained/t2exture_model/t2exture-g.pt
 ```
 
-These files contain the full T2exture model state and can be used directly by
-`infer.py` and `eval.py`.
+These full checkpoints are used directly by `infer.py` and `eval.py`.
 
 Training from scratch uses official AMT initialization checkpoints:
 
@@ -25,16 +20,14 @@ pretrained/amt-l.pth
 pretrained/amt-g.pth
 ```
 
-AMT source:
+AMT source should be placed at:
 
-https://github.com/MCG-NKU/AMT
+```text
+third_party/AMT_official/
+```
 
 LiteFlowNet is only needed if you regenerate pseudo-flow supervision:
 
 ```text
 pretrained/LiteFlowNet.pth
 ```
-
-Reference:
-
-https://github.com/sniklaus/pytorch-liteflownet

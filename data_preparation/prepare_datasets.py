@@ -154,6 +154,14 @@ def prepare_output_root(output_root: Path, overwrite: bool) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
 
 
+def public_path(path: Path) -> str:
+    """Return a manifest path without local drive or user-directory details."""
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve())).replace('\\', '/')
+    except ValueError:
+        return path.name
+
+
 def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
     source_root = args.source_root.resolve()
     output_root = args.output_root.resolve()
@@ -179,8 +187,8 @@ def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
 
     manifest: dict[str, Any] = {
         'created_at_utc': datetime.now(timezone.utc).isoformat(),
-        'source_root': str(source_root),
-        'output_root': str(output_root),
+        'source_root': public_path(args.source_root),
+        'output_root': public_path(args.output_root),
         'output_shape_hw': list(output_shape),
         'threshold_ratio': args.threshold_ratio,
         'flow_set': args.flow_set,

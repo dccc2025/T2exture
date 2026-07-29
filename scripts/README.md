@@ -1,23 +1,19 @@
-# scripts
+# Scripts
 
-There are two public entry points here.
+This directory contains auxiliary checks for the main T2exture pipeline.
 
-Check that the downloaded dataset matches `train.yaml`:
+```text
+preflight.py    validate split files, frame layout, context windows, and flow files
+```
+
+Run before training or evaluation:
 
 ```bash
 python -B scripts/preflight.py --data-root datasets --config train.yaml
 ```
 
-Train, evaluate, and visualize T2exture-S/L/G:
+For the full paper protocol, also verify the Stage 1 source-off caches:
 
 ```bash
-python -B scripts/train_ours.py --variants s l g
-```
-
-Other helpers live at the project root:
-
-```text
-infer.py   run synthetic or real inference
-eval.py    compute synthetic test metrics
-vis.py     make qualitative PNG sheets and videos
+python -B scripts/preflight.py --data-root datasets --config train.yaml --require-source-off
 ```

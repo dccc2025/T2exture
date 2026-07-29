@@ -1,4 +1,4 @@
-"""Dataset loading for AMT fine-tuning with optional passive neighbours."""
+"""Dataset loading for AMT fine-tuning with centered passive context."""
 
 from __future__ import annotations
 
@@ -25,6 +25,11 @@ def _frame_path(root: Path, scene: str, modality: str, frame_id: int) -> Path:
     return root / 'sim' / scene / modality / f'{frame_id:03d}.npy'
 
 
+def _auxiliary_frame_path(root: Path, scene: str, frame_id: int) -> Path:
+    """Return the cache path for one completed source-off passive frame."""
+    return root / scene / f'{frame_id:03d}.npy'
+
+
 def _load_frame(root: Path, scene: str, modality: str, frame_id: int) -> np.ndarray:
     """Load one grayscale frame and reject missing or non-two-dimensional arrays."""
     path = _frame_path(root, scene, modality, frame_id)
@@ -34,6 +39,47 @@ def _load_frame(root: Path, scene: str, modality: str, frame_id: int) -> np.ndar
     if image.ndim != 2:
         raise ValueError(f'Expected a 2-D {modality} frame at {path}, got {image.shape}')
     return image
+
+
+def _resolve_auxiliary_root(data_root: Path, value: Path | None) -> Path | None:
+    """Resolve an optional dataset-relative auxiliary frame root."""
+    if value is None:
+        return None
+    if value.is_absolute():
+        return value
+    if value.parts and value.parts[0] == data_root.name:
+        return value
+    return data_root / value
+
+
+def _load_source_off_cache(source_off_root: Path | None, scene: str, frame_id: int) -> np.ndarray | None:
+    """Load one cached Stage 1 source-off estimate when available."""
+    if source_off_root is not None:
+        cached = _auxiliary_frame_path(source_off_root, scene, frame_id)
+        if cached.is_file():
+            image = np.load(cached).astype(np.float32)
+            if image.ndim != 2:
+                raise ValueError(f'Expected a 2-D source-off frame at {cached}, got {image.shape}')
+            return image
+    return None
+
+
+def _load_passive_frame(root: Path, source_off_root: Path | None, scene: str, frame_id: int) -> np.ndarray:
+    """Load ``S^off`` from a completed cache when present, otherwise from synthetic passive frames."""
+    cached = _load_source_off_cache(source_off_root, scene, frame_id)
+    if cached is not None:
+        return cached
+    return _load_frame(root, scene, 'passive', frame_id)
+
+
+def _load_texture_anchor(root: Path, source_off_root: Path | None, scene: str, frame_id: int) -> np.ndarray:
+    """Load an active texture anchor, correcting it with a Stage 1 source-off estimate when present."""
+    texture = _load_frame(root, scene, 'texture', frame_id)
+    estimated_off = _load_source_off_cache(source_off_root, scene, frame_id)
+    if estimated_off is None:
+        return texture
+    source_on = texture + _load_frame(root, scene, 'passive', frame_id)
+    return np.maximum(source_on - estimated_off, 0.0).astype(np.float32)
 
 
 def _normalise(image: np.ndarray) -> np.ndarray:
@@ -62,18 +108,19 @@ def _crop(images: list[np.ndarray], crop_size: int | None, random_crop: bool) ->
 
 
 class TextureDataset(Dataset):
-    """Return one interpolated texture target with optional passive context and flow labels."""
+    """Return one interpolated texture target with centered passive context and flow labels."""
 
     def __init__(
         self,
         root: Path,
         split_file: Path,
-        passive_context: int = 4,
+        passive_context: int = 5,
         crop_size: int | None = None,
         random_crop: bool = False,
         pseudo_flow_root: Path | None = None,
         active_stride: int = 10,
         sample_passive_context: int | None = None,
+        source_off_root: Path | None = None,
     ) -> None:
         """Build samples from named scenes and active-frame intervals."""
         if active_stride <= 1:
@@ -89,6 +136,7 @@ class TextureDataset(Dataset):
         self.crop_size = crop_size
         self.random_crop = random_crop
         self.pseudo_flow_root = pseudo_flow_root
+        self.source_off_root = _resolve_auxiliary_root(root, source_off_root)
         self.items = [
             (scene, left, offset)
             for scene in self.scenes
@@ -103,15 +151,15 @@ class TextureDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str | int]:
-        """Load texture endpoints, a target, four passive neighbours, and target flow labels."""
+        """Load texture endpoints, a target, centered ``C_t``, and target flow labels."""
         scene, left, offset = self.items[index]
         target_id = left + offset
         right = left + self.active_stride
         context_ids = passive_context_ids(target_id, self.passive_context)
-        texture0 = _normalise(_load_frame(self.root, scene, 'texture', left))
-        texture1 = _normalise(_load_frame(self.root, scene, 'texture', right))
+        texture0 = _normalise(_load_texture_anchor(self.root, self.source_off_root, scene, left))
+        texture1 = _normalise(_load_texture_anchor(self.root, self.source_off_root, scene, right))
         target = _normalise(_load_frame(self.root, scene, 'texture', target_id))
-        passive = [_normalise(_load_frame(self.root, scene, 'passive', frame_id)) for frame_id in context_ids]
+        passive = [_normalise(_load_passive_frame(self.root, self.source_off_root, scene, frame_id)) for frame_id in context_ids]
         flow = load_pseudo_flow(self.root, scene, left, target_id, right, self.pseudo_flow_root)
         texture0, texture1, target, *rest = _crop([texture0, texture1, target, *passive, flow], self.crop_size, self.random_crop)
         passive, flow = rest[:-1], rest[-1]

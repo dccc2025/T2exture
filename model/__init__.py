@@ -16,7 +16,7 @@ T2TEXTURE_MODELS = {
 }
 
 
-def build_t2texture_model(backbone: str, pretrained: str | Path | None, passive_context: int = 4) -> nn.Module:
+def build_t2texture_model(backbone: str, pretrained: str | Path | None, passive_context: int = 5) -> nn.Module:
     """Build a T2exture wrapper for one AMT backbone name."""
     key = backbone.lower()
     if key not in T2TEXTURE_MODELS:

@@ -11,7 +11,7 @@ from model.t2texture_base import AMT_G_SPEC, T2textureAMTBase
 class T2textureAMTG(T2textureAMTBase):
     """T2exture-G: large AMT-G plus T2V adapter and passive guidance."""
 
-    def __init__(self, pretrained: str | Path | None, passive_context: int = 4) -> None:
+    def __init__(self, pretrained: str | Path | None, passive_context: int = 5) -> None:
         super().__init__(AMT_G_SPEC, pretrained, passive_context)
 
 

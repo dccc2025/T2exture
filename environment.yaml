@@ -16,5 +16,4 @@ dependencies:
       - pillow==12.2.0
       - imageio==2.37.0
       - einops==0.8.2
-      - huggingface_hub==0.36.0
       - matplotlib==3.10.9

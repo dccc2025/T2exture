@@ -1,231 +1,230 @@
-"""Fine-tune T2exture-S/L/G with the fixed three-term objective."""
+"""Train, evaluate, and visualize the T2exture-S/L/G variants."""
 
 from __future__ import annotations
 
 import argparse
-import json
-import random
+import datetime as dt
+import subprocess
+import sys
 from pathlib import Path
-from typing import Any
 
-import numpy as np
-import torch
 import yaml
-from torch.utils.data import DataLoader
 
-from config import resolve_sample_passive_context, validate_runtime_config
-from data import TextureDataset
-from losses.loss import CompositeLoss
-from model import build_t2texture_model
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from utils.checkpoint import torch_load_portable
 
 
-ARCHITECTURE_VERSION = 'main_figure_fourier_conv_p_v2'
+PYTHON = sys.executable
+MODELS = {
+    's': {'backbone': 'amt-s', 'pretrained': Path('pretrained/amt-s.pth'), 'label': 'T2exture-S'},
+    'l': {'backbone': 'amt-l', 'pretrained': Path('pretrained/amt-l.pth'), 'label': 'T2exture-L'},
+    'g': {'backbone': 'amt-g', 'pretrained': Path('pretrained/amt-g.pth'), 'label': 'T2exture-G'},
+}
+DEFAULT_VARIANTS = ['s', 'l', 'g']
+EXPECTED_ARCHITECTURE = 'main_figure_centered_context_v3'
 
 
-def parse_args() -> argparse.Namespace:
-    """Read only user-facing paths and an optional training configuration path."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data-root', type=Path, required=True)
-    parser.add_argument('--pretrained', type=Path, required=True)
-    parser.add_argument('--backbone', choices=['amt-s', 'amt-l', 'amt-g'], default='amt-l')
-    parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--config', type=Path, default=Path('train.yaml'))
-    parser.add_argument('--resume', type=Path, default=None)
-    parser.add_argument('--device', default='cuda')
-    return parser.parse_args()
+def now_stamp() -> str:
+    return dt.datetime.now().strftime('%Y%m%d_%H%M%S')
 
 
-def seed_everything(seed: int) -> None:
-    """Make dataset sampling and model initialization repeatable when possible."""
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+def run(command: list[str], log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f'RUN {" ".join(command)}', flush=True)
+    with log_path.open('w', encoding='utf-8') as handle:
+        handle.write(f'$ {" ".join(command)}\n')
+        handle.flush()
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            bufsize=1,
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(line, end='', flush=True)
+            handle.write(line)
+            handle.flush()
+        return_code = process.wait()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
 
 
-def make_optimizer(model: torch.nn.Module, base_lr: float, decay: float) -> torch.optim.Optimizer:
-    """Create parameter groups with lower rates for earlier AMT backbone layers."""
-    groups = []
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            continue
-        depth = 0 if not name.startswith('backbone.') else name.count('.')
-        groups.append({'params': [parameter], 'lr': base_lr * (decay ** depth)})
-    return torch.optim.AdamW(groups, weight_decay=1e-5)
-
-
-def infinite_loader(loader: DataLoader):
-    """Yield fresh batches forever without caching previous epochs."""
-    while True:
-        for batch in loader:
-            yield batch
-
-
-def loader_kwargs(config: dict[str, Any], device: torch.device) -> dict[str, Any]:
-    """Return DataLoader performance options that are safe on Windows."""
-    workers = int(config.get('num_workers', 0))
-    kwargs: dict[str, Any] = {
-        'num_workers': workers,
-        'pin_memory': bool(config.get('pin_memory', False)) and device.type == 'cuda',
-    }
-    if workers > 0:
-        kwargs['persistent_workers'] = bool(config.get('persistent_workers', False))
-        kwargs['prefetch_factor'] = int(config.get('prefetch_factor', 2))
-    return kwargs
-
-
-def move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
-    """Move tensor values to the training device without touching metadata fields."""
-    non_blocking = device.type == 'cuda'
-    return {key: value.to(device, non_blocking=non_blocking) if torch.is_tensor(value) else value for key, value in batch.items()}
-
-
-def batch_psnr(prediction: torch.Tensor, target: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-    """Return one PSNR value per sample for tensors in [0, 1]."""
-    mse = (prediction - target).pow(2).flatten(1).mean(dim=1).clamp_min(eps)
-    return -10.0 * torch.log10(mse)
-
-
-def resolve_data_path(root: Path, value: str | Path) -> Path:
-    """Resolve a config path relative to the dataset root unless it is absolute."""
-    path = Path(value)
-    return path if path.is_absolute() else root / path
-
-
-def load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
-    """Load a checkpoint and require the training checkpoint dictionary format."""
-    checkpoint = torch_load_portable(path, device)
-    if not isinstance(checkpoint, dict) or 'model' not in checkpoint:
-        raise ValueError(f'Expected a training checkpoint with a model state dict: {path}')
+def checkpoint_matches(checkpoint_path: Path, config: dict, expected_backbone: str) -> dict | None:
+    if not checkpoint_path.is_file():
+        return None
+    try:
+        checkpoint = torch_load_portable(checkpoint_path, 'cpu')
+    except Exception as exc:
+        print(f'RETRAIN {checkpoint_path}: cannot inspect checkpoint ({exc})', flush=True)
+        return None
+    if not isinstance(checkpoint, dict):
+        return None
+    checkpoint_config = checkpoint.get('config', {})
+    if checkpoint.get('architecture') != EXPECTED_ARCHITECTURE:
+        return None
+    checkpoint_backbone = checkpoint.get('backbone') or checkpoint_config.get('backbone')
+    if checkpoint_backbone != expected_backbone:
+        return None
+    if int(checkpoint_config.get('passive_context', 0)) != int(config.get('passive_context', 0)):
+        return None
     return checkpoint
 
 
-def checkpoint_payload(
-    model: torch.nn.Module,
-    config: dict[str, Any],
-    backbone: str,
-    global_step: int,
-    phase: str,
-    best_psnr: float,
-    step: int | None = None,
-    optimizer: torch.optim.Optimizer | None = None,
-) -> dict[str, Any]:
-    """Build the checkpoint dictionary used by best.pt and last.pt."""
-    payload: dict[str, Any] = {
-        'model': model.state_dict(),
-        'config': config,
-        'backbone': backbone,
-        'architecture': ARCHITECTURE_VERSION,
-        'global_step': global_step,
-        'phase': phase,
-        'best_psnr': best_psnr,
-    }
-    if step is not None:
-        payload['step'] = step
-    if optimizer is not None:
-        payload['optimizer'] = optimizer.state_dict()
-    return payload
+def training_complete(best: Path, last: Path, config_path: Path, expected_backbone: str) -> bool:
+    if not best.is_file() or not last.is_file():
+        return False
+    config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    expected_step = int(config['adapter_iterations']) + int(config['finetune_iterations'])
+    best_checkpoint = checkpoint_matches(best, config, expected_backbone)
+    last_checkpoint = checkpoint_matches(last, config, expected_backbone)
+    if best_checkpoint is None or last_checkpoint is None:
+        return False
+    return (
+        last_checkpoint.get('phase') == 'finetune'
+        and int(last_checkpoint.get('global_step', 0)) >= expected_step
+    )
 
 
-@torch.no_grad()
-def validate(model: torch.nn.Module, criterion: CompositeLoss, loader: DataLoader, device: torch.device) -> dict[str, float]:
-    """Evaluate validation loss and PSNR on the full validation split."""
-    model.eval()
-    totals = {'total': 0.0, 'charbonnier': 0.0, 'css': 0.0, 'flow': 0.0, 'psnr': 0.0}
-    count = 0
-    for batch in loader:
-        batch = move_batch(batch, device)
-        result = model(batch['texture0'], batch['texture1'], batch['time'], batch['passive_context'], return_flow=True)
-        losses = criterion(result['prediction'], batch['target'], result['flow0_pred'], result['flow1_pred'], batch['flow'])
-        batch_size = int(batch['target'].shape[0])
-        for key in ('total', 'charbonnier', 'css', 'flow'):
-            totals[key] += float(losses[key].detach().cpu()) * batch_size
-        totals['psnr'] += float(batch_psnr(result['prediction'], batch['target']).mean().detach().cpu()) * batch_size
-        count += batch_size
-    if count == 0:
-        raise ValueError('Validation loader is empty')
-    return {f'valid_{key}': value / count for key, value in totals.items()}
+def can_resume(checkpoint_path: Path, config_path: Path, expected_backbone: str) -> bool:
+    if not checkpoint_path.is_file():
+        return False
+    config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    return checkpoint_matches(checkpoint_path, config, expected_backbone) is not None
+
+
+def variant_source_off_root(source_off_root: Path | None, backbone: str) -> Path | None:
+    if source_off_root is None:
+        return None
+    known_backbones = {str(spec['backbone']) for spec in MODELS.values()}
+    if source_off_root.name in known_backbones and source_off_root.name != backbone:
+        raise ValueError(f'--source-off-root points to {source_off_root.name}, but variant expects {backbone}')
+    candidate = source_off_root / backbone
+    if not candidate.is_dir() and any((source_off_root / item).is_dir() for item in known_backbones):
+        raise FileNotFoundError(f'Missing source-off cache for {backbone}: {candidate}')
+    return candidate if candidate.is_dir() else source_off_root
+
+
+def evaluation_complete(metrics: Path, checkpoint: Path) -> bool:
+    if not metrics.is_file() or not checkpoint.is_file():
+        return False
+    return metrics.stat().st_mtime >= checkpoint.stat().st_mtime
+
+
+def visualization_complete(manifest: Path, metrics: Path) -> bool:
+    if not manifest.is_file() or not metrics.is_file():
+        return False
+    return manifest.stat().st_mtime >= metrics.stat().st_mtime
+
+
+def run_one(variant: str, data_root: Path, config_path: Path, output_root: Path, log_root: Path, source_off_root: Path | None) -> None:
+    spec = MODELS[variant]
+    exp_dir = output_root / f't2exture-{variant}'
+    best = exp_dir / 'best.pt'
+    last = exp_dir / 'last.pt'
+    metrics = exp_dir / 'test' / 'metrics.json'
+    log_prefix = f't2exture_{variant}_{now_stamp()}'
+    stage1_root = variant_source_off_root(source_off_root, str(spec['backbone']))
+
+    backbone = str(spec['backbone'])
+    if not training_complete(best, last, config_path, backbone):
+        command = [
+            PYTHON,
+            '-B',
+            'stage2.py',
+            '--data-root',
+            str(data_root),
+            '--pretrained',
+            str(ROOT / spec['pretrained']),
+            '--backbone',
+            backbone,
+            '--output-dir',
+            str(exp_dir),
+            '--config',
+            str(config_path),
+        ]
+        if stage1_root is not None:
+            command.extend(['--source-off-root', str(stage1_root)])
+        if can_resume(last, config_path, backbone):
+            command.extend(['--resume', str(last)])
+        run(command, log_root / f'{log_prefix}_train.log')
+    else:
+        print(f'SKIP train {exp_dir}: checkpoint is complete', flush=True)
+
+    if not evaluation_complete(metrics, best):
+        command = [
+            PYTHON,
+            '-B',
+            'eval.py',
+            '--data-root',
+            str(data_root),
+            '--checkpoint',
+            str(best),
+            '--backbone',
+            backbone,
+            '--split',
+            'test',
+            '--output-dir',
+            str(exp_dir / 'test'),
+            '--config',
+            str(config_path),
+        ]
+        if stage1_root is not None:
+            command.extend(['--source-off-root', str(stage1_root)])
+        run(command, log_root / f'{log_prefix}_eval.log')
+    else:
+        print(f'SKIP eval {exp_dir}: metrics.json exists', flush=True)
+
+    if not visualization_complete(exp_dir / 'test' / 'vis' / 'manifest.json', metrics):
+        run(
+            [
+                PYTHON,
+                '-B',
+                'vis.py',
+                '--eval-dir',
+                str(exp_dir / 'test'),
+                '--output-dir',
+                str(exp_dir / 'test' / 'vis'),
+                '--method-label',
+                str(spec['label']),
+                '--max-frames-per-scene',
+                '5',
+            ],
+            log_root / f'{log_prefix}_vis.log',
+        )
+    else:
+        print(f'SKIP vis {exp_dir}: vis output exists', flush=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--variants', nargs='+', choices=DEFAULT_VARIANTS, default=DEFAULT_VARIANTS)
+    parser.add_argument('--data-root', type=Path, default=ROOT / 'datasets')
+    parser.add_argument('--config', type=Path, default=ROOT / 'train.yaml')
+    parser.add_argument('--output-root', type=Path, default=ROOT / 'outputs' / 'final' / 'ours')
+    parser.add_argument('--log-root', type=Path, default=ROOT / 'outputs' / 'final' / '_logs')
+    parser.add_argument('--source-off-root', type=Path, default=None)
+    return parser.parse_args()
 
 
 def main() -> None:
-    """Run adapter-only training followed by whole-model layerwise fine-tuning."""
     args = parse_args()
-    config = yaml.safe_load(args.config.read_text())
-    validate_runtime_config(config, args.data_root)
-    run_config = {**config, 'backbone': args.backbone, 'architecture': ARCHITECTURE_VERSION}
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / 'config.json').write_text(json.dumps(run_config, indent=2) + '\n')
-    seed_everything(int(config['seed']))
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
-    if device.type == 'cuda':
-        torch.set_float32_matmul_precision('high')
-        torch.backends.cudnn.benchmark = True
-    pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
-    passive_context = int(config.get('passive_context', 4))
-    active_stride = int(config.get('active_stride', 10))
-    sample_passive_context = resolve_sample_passive_context(config, passive_context)
-    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride, sample_passive_context)
-    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride, sample_passive_context=sample_passive_context)
-    train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, **loader_kwargs(config, device)))
-    valid_loader = DataLoader(valid_data, batch_size=int(config.get('valid_batch_size', config['batch_size'])), shuffle=False, **loader_kwargs(config, device))
-    model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)
-    criterion = CompositeLoss(config.get('loss')).to(device)
-    resume_state = load_checkpoint(args.resume, device) if args.resume is not None else None
-    if resume_state is not None:
-        model.load_state_dict(resume_state['model'], strict=True)
-    best_psnr = float('-inf')
-    if resume_state is not None and 'best_psnr' in resume_state:
-        best_psnr = float(resume_state['best_psnr'])
-    global_step = int(resume_state.get('global_step', 0)) if resume_state is not None else 0
-    resume_phase = resume_state.get('phase') if resume_state is not None else None
-    resume_step = int(resume_state.get('step', 0)) if resume_state is not None else 0
-    valid_interval = int(config.get('valid_interval', 500))
-    phases = [('adapter', config['adapter_iterations'], config['adapter_lr']), ('finetune', config['finetune_iterations'], config['finetune_lr'])]
-    phase_names = [item[0] for item in phases]
-    if resume_phase is not None and resume_phase not in phase_names:
-        raise ValueError(f'Unknown resume phase {resume_phase!r}; expected one of {phase_names}')
-    for phase, iterations, lr in phases:
-        if resume_phase is not None and phase_names.index(phase) < phase_names.index(resume_phase):
-            continue
-        start_step = resume_step if phase == resume_phase else 0
-        model.set_phase(phase)
-        optimizer = make_optimizer(model, lr, config['layerwise_lr_decay'])
-        if phase == resume_phase and resume_state is not None and 'optimizer' in resume_state:
-            optimizer.load_state_dict(resume_state['optimizer'])
-        if start_step >= iterations:
-            continue
-        if start_step:
-            print(json.dumps({'resume': True, 'phase': phase, 'start_step': start_step, 'global_step': global_step}), flush=True)
-        for step in range(start_step, iterations):
-            batch = next(train_loader)
-            batch = move_batch(batch, device)
-            model.train(); optimizer.zero_grad(set_to_none=True)
-            result = model(batch['texture0'], batch['texture1'], batch['time'], batch['passive_context'], return_flow=True)
-            losses = criterion(result['prediction'], batch['target'], result['flow0_pred'], result['flow1_pred'], batch['flow'])
-            losses['total'].backward(); optimizer.step()
-            global_step += 1
-            if (step + 1) % 100 == 0:
-                record = {
-                    'phase': phase,
-                    'step': step + 1,
-                    'global_step': global_step,
-                    **{key: float(value.detach().cpu()) for key, value in losses.items()},
-                }
-                print(json.dumps(record), flush=True)
-                torch.save(
-                    checkpoint_payload(model, run_config, args.backbone, global_step, phase, best_psnr, step=step + 1, optimizer=optimizer),
-                    args.output_dir / 'last.pt',
-                )
-            if (step + 1) % valid_interval == 0 or step + 1 == iterations:
-                valid_record = {'phase': phase, 'step': step + 1, 'global_step': global_step, **validate(model, criterion, valid_loader, device)}
-                print(json.dumps(valid_record), flush=True)
-                if valid_record['valid_psnr'] > best_psnr:
-                    best_psnr = valid_record['valid_psnr']
-                    torch.save(
-                        checkpoint_payload(model, run_config, args.backbone, global_step, phase, best_psnr),
-                        args.output_dir / 'best.pt',
-                    )
+    for variant in args.variants:
+        run_one(
+            variant,
+            args.data_root.resolve(),
+            args.config.resolve(),
+            args.output_root.resolve(),
+            args.log_root.resolve(),
+            args.source_off_root.resolve() if args.source_off_root is not None else None,
+        )
 
 
 if __name__ == '__main__':

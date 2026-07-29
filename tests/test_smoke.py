@@ -15,9 +15,14 @@ from flow_generation import load_pseudo_flow, missing_pseudo_flow_paths, pseudo_
 class TestPublicConfiguration(unittest.TestCase):
     """Cover configuration that does not require a CUDA or PyTorch runtime."""
 
-    def test_passive_context_uses_two_frames_on_each_side(self) -> None:
-        """The target passive frame is excluded from a four-frame context."""
-        self.assertEqual(passive_context_ids(center_id=10, context_size=4), (8, 9, 11, 12))
+    def test_passive_context_is_centered_on_target_time(self) -> None:
+        """The default structural context includes the target-time passive frame."""
+        self.assertEqual(passive_context_ids(center_id=10, context_size=5), (8, 9, 10, 11, 12))
+
+    def test_passive_context_rejects_even_sizes(self) -> None:
+        """Eq. (10) uses a center frame, so enabled contexts must have odd size."""
+        with self.assertRaises(ValueError):
+            passive_context_ids(center_id=10, context_size=4)
 
     def test_passive_context_can_be_disabled(self) -> None:
         """No-passive ablations use an empty context instead of special dataset logic."""
@@ -26,7 +31,7 @@ class TestPublicConfiguration(unittest.TestCase):
     def test_train_config_uses_required_defaults(self) -> None:
         """The public defaults preserve the approved two-stage setup."""
         config = TrainConfig()
-        self.assertEqual(config.passive_context, 4)
+        self.assertEqual(config.passive_context, 5)
         self.assertEqual(config.active_stride, 10)
         self.assertIsNone(config.sample_passive_context)
         self.assertTrue(config.require_datasets_root)
@@ -39,7 +44,7 @@ class TestPublicConfiguration(unittest.TestCase):
 
     def test_sample_passive_context_keeps_sampling_window_fixed(self) -> None:
         """Context ablations can share the same largest passive sampling window."""
-        self.assertEqual(resolve_sample_passive_context({'sample_passive_context': 10}, passive_context=0), 10)
+        self.assertEqual(resolve_sample_passive_context({'sample_passive_context': 11}, passive_context=0), 11)
 
     def test_public_runs_require_datasets_root(self) -> None:
         """Public runs fail early when a command accidentally points at a source cache."""
@@ -176,9 +181,9 @@ class TestPublicConfiguration(unittest.TestCase):
         time = torch.tensor([0.25, 0.75], dtype=torch.float32)
         adapter = T2VAdapter()
         texture = torch.rand(2, 1, 32, 48)
-        self.assertEqual(tuple(adapter(texture, time).shape), (2, 3, 32, 48))
+        self.assertEqual(tuple(adapter(texture).shape), (2, 3, 32, 48))
         self.assertEqual(tuple(FourierConv2d(20)(time).shape), (2, 20, 1, 1))
 
-        pyramid = PassiveGuidancePyramid(context_size=4, decoder_channels=(20, 32, 44))
-        guidance = pyramid(torch.rand(2, 4, 32, 48), time)
+        pyramid = PassiveGuidancePyramid(context_size=5, decoder_channels=(20, 32, 44))
+        guidance = pyramid(torch.rand(2, 5, 32, 48), time)
         self.assertEqual([tuple(item.shape) for item in guidance], [(2, 20, 16, 24), (2, 32, 8, 12), (2, 44, 4, 6)])

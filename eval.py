@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--split', choices=['train', 'valid', 'test'], default='test')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--config', type=Path, default=Path('train.yaml'))
+    parser.add_argument('--source-off-root', type=Path, default=None)
     parser.add_argument('--batch-size', type=int, default=None)
     parser.add_argument('--device', default='cuda')
     return parser.parse_args()
@@ -101,6 +102,16 @@ def _relative(path: Path, root: Path) -> str:
     return str(path.relative_to(root)).replace('\\', '/')
 
 
+def _public_path(path: Path | None) -> str | None:
+    """Return a path string suitable for public manifests."""
+    if path is None:
+        return None
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve())).replace('\\', '/')
+    except ValueError:
+        return path.name
+
+
 def _mean_rows(rows: list[dict[str, float]]) -> dict[str, float]:
     """Average the main metric keys over a list of frame-level rows."""
     if not rows:
@@ -117,9 +128,13 @@ def main() -> None:
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
-    passive_context = int(config.get('passive_context', 4))
+    passive_context = int(config.get('passive_context', 5))
     active_stride = int(config.get('active_stride', 10))
     sample_passive_context = resolve_sample_passive_context(config, passive_context)
+    source_off_root = args.source_off_root or (_resolve_data_path(args.data_root, config['source_off_dir']) if config.get('source_off_dir') else None)
+    public_config = dict(config)
+    public_config['pseudo_flow_dir'] = _public_path(pseudo_flow_root)
+    public_config['source_off_dir'] = _public_path(source_off_root)
     dataset = TextureDataset(
         args.data_root,
         args.data_root / f'{args.split}.txt',
@@ -129,6 +144,7 @@ def main() -> None:
         pseudo_flow_root=pseudo_flow_root,
         active_stride=active_stride,
         sample_passive_context=sample_passive_context,
+        source_off_root=source_off_root,
     )
     batch_size = args.batch_size or int(config.get('eval_batch_size', config['batch_size']))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, **_loader_kwargs(config, device))
@@ -204,10 +220,10 @@ def main() -> None:
     }
     manifest = {
         **metrics,
-        'data_root': str(args.data_root.resolve()),
-        'checkpoint': str(args.checkpoint.resolve()),
-        'pretrained': str(args.pretrained.resolve()) if args.pretrained is not None else None,
-        'config': config,
+        'data_root': _public_path(args.data_root),
+        'checkpoint': _public_path(args.checkpoint),
+        'pretrained': _public_path(args.pretrained),
+        'config': public_config,
         'artifacts': {
             'pred': 'pred/',
             'err': 'err/',
