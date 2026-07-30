@@ -151,6 +151,10 @@ def estimate_source_off(model: torch.nn.Module, left: np.ndarray, right: np.ndar
 
 def main() -> None:
     args = parse_args()
+    args.data_root = args.data_root.resolve()
+    args.real_config = args.real_config.resolve()
+    args.pretrained = args.pretrained.resolve()
+    args.output_dir = args.output_dir.resolve()
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     model = build_model(args.backbone, args.pretrained, device)
 

@@ -96,7 +96,11 @@ def batch_psnr(prediction: torch.Tensor, target: torch.Tensor, eps: float = 1e-1
 def resolve_data_path(root: Path, value: str | Path) -> Path:
     """Resolve a config path relative to the dataset root unless it is absolute."""
     path = Path(value)
-    return path if path.is_absolute() else root / path
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == root.name:
+        return root.parent.joinpath(*path.parts)
+    return root / path
 
 
 def portable_data_path(root: Path, path: Path | None) -> str | None:
@@ -180,9 +184,17 @@ def validate(model: torch.nn.Module, criterion: CompositeLoss, loader: DataLoade
 def main() -> None:
     """Run adapter-only training followed by whole-model layerwise fine-tuning."""
     args = parse_args()
+    args.data_root = args.data_root.resolve()
+    args.pretrained = args.pretrained.resolve()
+    args.output_dir = args.output_dir.resolve()
+    args.config = args.config.resolve()
+    if args.source_off_root is not None:
+        args.source_off_root = resolve_data_path(args.data_root, args.source_off_root)
+    if args.resume is not None:
+        args.resume = args.resume.resolve()
     config = yaml.safe_load(args.config.read_text())
     validate_runtime_config(config, args.data_root)
-    pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
+    pseudo_flow_root = resolve_data_path(args.data_root, config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
     source_off_root = args.source_off_root or (resolve_data_path(args.data_root, config['source_off_dir']) if config.get('source_off_dir') else None)
     run_config = {
         **public_run_config(config, args.data_root, pseudo_flow_root, source_off_root),
@@ -199,8 +211,28 @@ def main() -> None:
     passive_context = int(config.get('passive_context', 5))
     active_stride = int(config.get('active_stride', 10))
     sample_passive_context = resolve_sample_passive_context(config, passive_context)
-    train_data = TextureDataset(args.data_root, args.data_root / 'train.txt', passive_context, config['crop_size'], True, pseudo_flow_root, active_stride, sample_passive_context, source_off_root)
-    valid_data = TextureDataset(args.data_root, args.data_root / 'valid.txt', passive_context, pseudo_flow_root=pseudo_flow_root, active_stride=active_stride, sample_passive_context=sample_passive_context, source_off_root=source_off_root)
+    train_data = TextureDataset(
+        args.data_root,
+        args.data_root / 'train.txt',
+        passive_context,
+        config['crop_size'],
+        True,
+        pseudo_flow_root,
+        active_stride,
+        sample_passive_context,
+        source_off_root,
+        require_source_off=True,
+    )
+    valid_data = TextureDataset(
+        args.data_root,
+        args.data_root / 'valid.txt',
+        passive_context,
+        pseudo_flow_root=pseudo_flow_root,
+        active_stride=active_stride,
+        sample_passive_context=sample_passive_context,
+        source_off_root=source_off_root,
+        require_source_off=True,
+    )
     train_loader = infinite_loader(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True, **loader_kwargs(config, device)))
     valid_loader = DataLoader(valid_data, batch_size=int(config.get('valid_batch_size', config['batch_size'])), shuffle=False, **loader_kwargs(config, device))
     model = build_t2texture_model(args.backbone, args.pretrained, passive_context).to(device)

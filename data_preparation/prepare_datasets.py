@@ -199,6 +199,7 @@ def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
     for scene in scenes:
         texture_dir = source_root / 'sim' / scene / 'texture'
         passive_dir = source_root / 'sim' / scene / 'passive'
+        source_on_dir = source_root / 'sim' / scene / 'source_on'
         bbox, source_shape, detected_frames = texture_bbox(texture_dir, args.threshold_ratio)
         box = fixed_crop_box(bbox, source_shape, output_shape)
         if not passive_dir.is_dir():
@@ -206,6 +207,18 @@ def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
 
         texture_count = save_cropped_frames(texture_dir, output_root / 'sim' / scene / 'texture', box, output_shape)
         passive_count = save_cropped_frames(passive_dir, output_root / 'sim' / scene / 'passive', box, output_shape)
+        source_on_count: int | None = None
+        if source_on_dir.is_dir():
+            texture_names = {file.name for file in numbered_npy_files(texture_dir)}
+            source_on_names = {file.name for file in numbered_npy_files(source_on_dir)}
+            if source_on_names != texture_names:
+                raise ValueError(f'Source-on and texture frame names differ for {scene}')
+            source_on_count = save_cropped_frames(source_on_dir, output_root / 'sim' / scene / 'source_on', box, output_shape)
+            if source_on_count != texture_count:
+                raise ValueError(
+                    f'Source-on and texture frame counts differ for {scene}: '
+                    f'{source_on_count} vs {texture_count}'
+                )
         flow_count = save_cropped_flow(source_flow_root / scene, output_flow_root / scene, box, output_shape)
 
         y_min, x_min, y_max, x_max = bbox
@@ -218,6 +231,7 @@ def build_datasets(args: argparse.Namespace) -> dict[str, Any]:
             'detected_texture_frames': detected_frames,
             'texture_frames': texture_count,
             'passive_frames': passive_count,
+            'source_on_frames': source_on_count,
             'flow_files': flow_count,
         }
         print(f'{scene}: crop={top},{left},{bottom},{right} bbox={y_max - y_min}x{x_max - x_min} flow={flow_count}')

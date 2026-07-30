@@ -41,6 +41,23 @@ def _load_frame(root: Path, scene: str, modality: str, frame_id: int) -> np.ndar
     return image
 
 
+def _load_source_on_frame(root: Path, scene: str, frame_id: int) -> np.ndarray:
+    """Load raw ``S^on`` when available, with a legacy residual fallback."""
+    source_on = _frame_path(root, scene, 'source_on', frame_id)
+    source_on_dir = root / 'sim' / scene / 'source_on'
+    if source_on_dir.is_dir() and not source_on.is_file():
+        raise FileNotFoundError(f'Missing source-on frame: {source_on}')
+    if source_on.is_file():
+        image = np.load(source_on).astype(np.float32)
+        if image.ndim != 2:
+            raise ValueError(f'Expected a 2-D source-on frame at {source_on}, got {image.shape}')
+        return image
+
+    # Older prepared roots store X and S^off only. This is exact when X is a
+    # nonnegative additive source residual, which is the synthetic protocol.
+    return _load_frame(root, scene, 'texture', frame_id) + _load_frame(root, scene, 'passive', frame_id)
+
+
 def _resolve_auxiliary_root(data_root: Path, value: Path | None) -> Path | None:
     """Resolve an optional dataset-relative auxiliary frame root."""
     if value is None:
@@ -48,7 +65,7 @@ def _resolve_auxiliary_root(data_root: Path, value: Path | None) -> Path | None:
     if value.is_absolute():
         return value
     if value.parts and value.parts[0] == data_root.name:
-        return value
+        return data_root.parent.joinpath(*value.parts)
     return data_root / value
 
 
@@ -72,13 +89,24 @@ def _load_passive_frame(root: Path, source_off_root: Path | None, scene: str, fr
     return _load_frame(root, scene, 'passive', frame_id)
 
 
-def _load_texture_anchor(root: Path, source_off_root: Path | None, scene: str, frame_id: int) -> np.ndarray:
+def _load_texture_anchor(
+    root: Path,
+    source_off_root: Path | None,
+    scene: str,
+    frame_id: int,
+    require_source_off: bool = False,
+) -> np.ndarray:
     """Load an active texture anchor, correcting it with a Stage 1 source-off estimate when present."""
     texture = _load_frame(root, scene, 'texture', frame_id)
     estimated_off = _load_source_off_cache(source_off_root, scene, frame_id)
     if estimated_off is None:
+        if require_source_off:
+            raise FileNotFoundError(
+                f'Missing Stage 1 source-off cache for active frame {scene}/{frame_id:03d}; '
+                'run stage1.py or pass the matching cache root.'
+            )
         return texture
-    source_on = texture + _load_frame(root, scene, 'passive', frame_id)
+    source_on = _load_source_on_frame(root, scene, frame_id)
     return np.maximum(source_on - estimated_off, 0.0).astype(np.float32)
 
 
@@ -121,6 +149,7 @@ class TextureDataset(Dataset):
         active_stride: int = 10,
         sample_passive_context: int | None = None,
         source_off_root: Path | None = None,
+        require_source_off: bool = False,
     ) -> None:
         """Build samples from named scenes and active-frame intervals."""
         if active_stride <= 1:
@@ -137,6 +166,9 @@ class TextureDataset(Dataset):
         self.random_crop = random_crop
         self.pseudo_flow_root = pseudo_flow_root
         self.source_off_root = _resolve_auxiliary_root(root, source_off_root)
+        self.require_source_off = require_source_off
+        if self.require_source_off and self.source_off_root is None:
+            raise ValueError('Stage 1 source-off cache is required for the paper-aligned pipeline')
         self.items = [
             (scene, left, offset)
             for scene in self.scenes
@@ -156,8 +188,12 @@ class TextureDataset(Dataset):
         target_id = left + offset
         right = left + self.active_stride
         context_ids = passive_context_ids(target_id, self.passive_context)
-        texture0 = _normalise(_load_texture_anchor(self.root, self.source_off_root, scene, left))
-        texture1 = _normalise(_load_texture_anchor(self.root, self.source_off_root, scene, right))
+        texture0 = _normalise(
+            _load_texture_anchor(self.root, self.source_off_root, scene, left, self.require_source_off)
+        )
+        texture1 = _normalise(
+            _load_texture_anchor(self.root, self.source_off_root, scene, right, self.require_source_off)
+        )
         target = _normalise(_load_frame(self.root, scene, 'texture', target_id))
         passive = [_normalise(_load_passive_frame(self.root, self.source_off_root, scene, frame_id)) for frame_id in context_ids]
         flow = load_pseudo_flow(self.root, scene, left, target_id, right, self.pseudo_flow_root)

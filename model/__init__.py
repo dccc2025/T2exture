@@ -7,7 +7,7 @@ import torch.nn as nn
 from .t2texture_base import AMT_G_SPEC, AMT_L_SPEC, AMT_S_SPEC, T2textureAMTBase
 from .t2texture_amt_g import T2textureAMTG
 from .t2texture_amt_s import T2textureAMTS
-from .t2texture_amt import T2textureAMTL
+from .t2texture_amt_l import T2textureAMTL
 
 T2TEXTURE_MODELS = {
     'amt-s': T2textureAMTS,

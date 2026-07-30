@@ -163,6 +163,18 @@ def check_scene_frames(data_root: Path, scenes: list[str], errors: list[str], re
             if files:
                 shape = tuple(np.load(files[0]).shape)
                 same(errors, f'{scene}/{folder} frame shape', shape, EXPECTED_FRAME_SHAPE)
+        source_on_dir = data_root / 'sim' / scene / 'source_on'
+        if source_on_dir.is_dir():
+            files = sorted(source_on_dir.glob('*.npy'))
+            if require_full_count:
+                same(errors, f'{scene}/source_on frame count', len(files), EXPECTED_FRAMES_PER_SCENE)
+            elif files:
+                ok(f'{scene}/source_on frame count: {len(files)}')
+            else:
+                fail(errors, f'{scene}/source_on has no frames')
+            if files:
+                shape = tuple(np.load(files[0]).shape)
+                same(errors, f'{scene}/source_on frame shape', shape, EXPECTED_FRAME_SHAPE)
 
 
 def check_split(data_root: Path, config: dict[str, Any], split: str, errors: list[str], profile: str) -> None:
@@ -181,7 +193,7 @@ def check_split(data_root: Path, config: dict[str, Any], split: str, errors: lis
 
     passive_context = int(config.get('passive_context', 5))
     sample_context = resolve_sample_passive_context(config, passive_context)
-    pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
+    pseudo_flow_root = data_root / Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
 
     try:
         dataset = TextureDataset(

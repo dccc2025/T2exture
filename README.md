@@ -15,7 +15,7 @@ In the paper notation, a texture frame is the nonnegative residual:
 X_k = [S_k^on - S_k^off]_+
 ```
 
-For synthetic data, `sim/<scene>/texture/*.npy` already stores `X`. For real data, provide either precomputed `texture/` residual frames or `source_on/` plus `source_off/` frames so `infer.py` can construct the residual anchors.
+For synthetic data, `sim/<scene>/texture/*.npy` stores the target residual `X`. A prepared root may also contain `sim/<scene>/source_on/*.npy`; when present, the loader constructs active anchors from the exact source-on frame. For real data, provide either precomputed `texture/` residual frames or `source_on/` plus `source_off/` frames so `infer.py` can construct the residual anchors.
 
 ## Setup
 
@@ -63,6 +63,7 @@ datasets/
   sim/<scene>/
     texture/001.npy     # source-conditioned texture X
     passive/001.npy     # source-off passive state S^off
+    source_on/001.npy   # optional raw S^on, used for exact Eq. (8) anchors
   source_off/amt-s/<scene>/001.npy
   source_off/amt-l/<scene>/001.npy
   source_off/amt-g/<scene>/001.npy
@@ -77,7 +78,7 @@ python -B scripts/preflight.py --data-root datasets --config train.yaml
 python -B scripts/preflight.py --data-root datasets --config train.yaml --require-source-off
 ```
 
-Formal S/L/G evaluation uses the matching Stage 1 cache under `datasets/source_off/amt-s`, `datasets/source_off/amt-l`, or `datasets/source_off/amt-g`. If these caches are not included with the dataset, generate them with `stage1.py` before training or formal evaluation.
+Formal S/L/G training, evaluation, and synthetic inference require the matching Stage 1 cache under `datasets/source_off/amt-s`, `datasets/source_off/amt-l`, or `datasets/source_off/amt-g`. If these caches are not included with the dataset, generate them with `stage1.py` before running those commands. The loader keeps a cache-free fallback only for small local interface checks.
 
 ## Method-aligned context
 
@@ -181,6 +182,7 @@ python -B infer.py \
   --variant l \
   --checkpoint pretrained/t2exture_model/t2exture-l.pt \
   --data-root datasets \
+  --source-off-root datasets/source_off/amt-l \
   --split test \
   --max-samples 2 \
   --output-dir outputs/infer/synthetic-l
@@ -211,6 +213,8 @@ real/<sequence>/passive/001.png       # source-off/passive S^off
 real/<sequence>/source_on/001.png     # source-on active frame
 real/<sequence>/source_off/001.png    # source-off/passive frame in the sequence folder
 ```
+
+When `source_on/` and `source_off/` are supplied, the implementation computes `[S^on - S^off]_+` in their shared input scale and only then normalizes the residual. PNG inputs use the same `[0, 1]` scale as Stage 1 caches; NumPy inputs must already use a matching physical scale.
 
 Then run:
 
@@ -263,6 +267,9 @@ eval.py                      full-resolution synthetic evaluation
 infer.py                     synthetic and real inference
 model/conditioning.py        T2V adapter, Fourier features, Conv-P pyramid
 model/t2texture_base.py      shared AMT wrapper for S/L/G
+model/t2texture_amt_s.py     T2exture-S wrapper
+model/t2texture_amt_l.py     T2exture-L wrapper
+model/t2texture_amt_g.py     T2exture-G wrapper
 scripts/                     dataset checks
 flow_generation/             pseudo-flow supervision utilities
 data_preparation/            dataset conversion utilities

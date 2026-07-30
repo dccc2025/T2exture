@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from config import LossWeights, TrainConfig, expected_flow_set, passive_context_ids, resolve_sample_passive_context, validate_runtime_config
+from data import _load_texture_anchor
 from flow_generation import load_pseudo_flow, missing_pseudo_flow_paths, pseudo_flow_path
 
 
@@ -112,6 +113,43 @@ class TestPublicConfiguration(unittest.TestCase):
             )
             flow = load_pseudo_flow(root, 'scene', 1, 2, 11)
         self.assertEqual(flow.shape, (4, 3, 4))
+
+    def test_texture_anchor_uses_exact_source_on_when_available(self) -> None:
+        """Eq. (8) uses S_on and the Stage 1 estimate in a shared scale."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'datasets'
+            cache = root / 'source_off' / 'amt-l'
+            (root / 'sim' / 'scene' / 'texture').mkdir(parents=True)
+            (root / 'sim' / 'scene' / 'passive').mkdir(parents=True)
+            (root / 'sim' / 'scene' / 'source_on').mkdir(parents=True)
+            (cache / 'scene').mkdir(parents=True)
+            np.save(root / 'sim' / 'scene' / 'texture' / '001.npy', np.zeros((2, 2), dtype=np.float32))
+            np.save(root / 'sim' / 'scene' / 'passive' / '001.npy', np.ones((2, 2), dtype=np.float32))
+            np.save(root / 'sim' / 'scene' / 'source_on' / '001.npy', np.full((2, 2), 10.0, dtype=np.float32))
+            np.save(cache / 'scene' / '001.npy', np.full((2, 2), 4.0, dtype=np.float32))
+            anchor = _load_texture_anchor(root, cache, 'scene', 1, require_source_off=True)
+        self.assertTrue(np.allclose(anchor, 6.0))
+
+    def test_texture_anchor_requires_stage1_cache_for_formal_path(self) -> None:
+        """Formal Stage 2 loading must not silently bypass Stage 1."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'datasets'
+            texture_dir = root / 'sim' / 'scene' / 'texture'
+            texture_dir.mkdir(parents=True)
+            np.save(texture_dir / '001.npy', np.ones((2, 2), dtype=np.float32))
+            with self.assertRaises(FileNotFoundError):
+                _load_texture_anchor(root, None, 'scene', 1, require_source_off=True)
+
+    def test_real_residual_is_normalized_after_subtraction(self) -> None:
+        """Real residual construction preserves the order in Eq. (5)."""
+        try:
+            from infer import normalise_real_array
+        except ModuleNotFoundError as exc:
+            self.skipTest(f'Inference dependencies are not available: {exc}')
+        source_on = np.array([[10.0, 4.0]], dtype=np.float32)
+        source_off = np.array([[4.0, 8.0]], dtype=np.float32)
+        residual = np.maximum(source_on - source_off, 0.0)
+        self.assertTrue(np.allclose(normalise_real_array(residual), [[1.0, 0.0]]))
 
     def test_batch_psnr_is_per_sample(self) -> None:
         """Training validation can aggregate PSNR over batches."""

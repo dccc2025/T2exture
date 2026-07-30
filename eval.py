@@ -22,6 +22,9 @@ from model import build_t2texture_model
 from utils.checkpoint import extract_model_state, torch_load_portable
 
 
+ROOT = Path(__file__).resolve().parent
+
+
 def parse_args() -> argparse.Namespace:
     """Read the checkpoint, dataset split, and output location for evaluation."""
     parser = argparse.ArgumentParser()
@@ -31,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--backbone', choices=['amt-s', 'amt-l', 'amt-g'], default='amt-l')
     parser.add_argument('--split', choices=['train', 'valid', 'test'], default='test')
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--config', type=Path, default=Path('train.yaml'))
+    parser.add_argument('--config', type=Path, default=ROOT / 'train.yaml')
     parser.add_argument('--source-off-root', type=Path, default=None)
     parser.add_argument('--batch-size', type=int, default=None)
     parser.add_argument('--device', default='cuda')
@@ -78,7 +81,11 @@ def _loader_kwargs(config: dict[str, Any], device: torch.device) -> dict[str, An
 def _resolve_data_path(root: Path, value: str | Path) -> Path:
     """Resolve a config path relative to the dataset root unless it is absolute."""
     path = Path(value)
-    return path if path.is_absolute() else root / path
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == root.name:
+        return root.parent.joinpath(*path.parts)
+    return root / path
 
 
 def _batch_ints(value: Any) -> list[int]:
@@ -122,12 +129,20 @@ def _mean_rows(rows: list[dict[str, float]]) -> dict[str, float]:
 def main() -> None:
     """Run evaluation and write frame, scene, and overall metric artifacts."""
     args = parse_args()
+    args.data_root = args.data_root.resolve()
+    args.checkpoint = args.checkpoint.resolve()
+    args.config = args.config.resolve()
+    args.output_dir = args.output_dir.resolve()
+    if args.pretrained is not None:
+        args.pretrained = args.pretrained.resolve()
+    if args.source_off_root is not None:
+        args.source_off_root = _resolve_data_path(args.data_root, args.source_off_root)
     config = yaml.safe_load(args.config.read_text())
     validate_runtime_config(config, args.data_root)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
-    pseudo_flow_root = Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
+    pseudo_flow_root = _resolve_data_path(args.data_root, config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None
     passive_context = int(config.get('passive_context', 5))
     active_stride = int(config.get('active_stride', 10))
     sample_passive_context = resolve_sample_passive_context(config, passive_context)
@@ -145,6 +160,7 @@ def main() -> None:
         active_stride=active_stride,
         sample_passive_context=sample_passive_context,
         source_off_root=source_off_root,
+        require_source_off=True,
     )
     batch_size = args.batch_size or int(config.get('eval_batch_size', config['batch_size']))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, **_loader_kwargs(config, device))

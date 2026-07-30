@@ -20,6 +20,9 @@ from model import build_t2texture_model
 from utils.checkpoint import extract_model_state, torch_load_portable
 
 
+ROOT = Path(__file__).resolve().parent
+
+
 VARIANTS = {
     's': {'backbone': 'amt-s', 'filename': 't2exture-s.pt'},
     'l': {'backbone': 'amt-l', 'filename': 't2exture-l.pt'},
@@ -34,8 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--checkpoint', type=Path, default=None, help='Local T2exture checkpoint.')
     parser.add_argument('--pretrained', type=Path, default=None, help='Optional AMT init checkpoint for legacy partial checkpoints.')
     parser.add_argument('--data-root', type=Path, default=Path('datasets'))
-    parser.add_argument('--config', type=Path, default=Path('train.yaml'))
-    parser.add_argument('--real-config', type=Path, default=Path('configs/real.yaml'))
+    parser.add_argument('--config', type=Path, default=ROOT / 'train.yaml')
+    parser.add_argument('--real-config', type=Path, default=ROOT / 'configs' / 'real.yaml')
     parser.add_argument('--source-off-root', type=Path, default=None, help='Optional completed S_off cache used for passive context at active keyframes.')
     parser.add_argument('--split', choices=['train', 'valid', 'test'], default='test')
     parser.add_argument('--output-dir', type=Path, required=True)
@@ -92,8 +95,18 @@ def resolve_optional_root(base: Path, value: str | Path | None) -> Path | None:
     if path.is_absolute():
         return path
     if path.parts and path.parts[0] == base.name:
-        return path
+        return base.parent.joinpath(*path.parts)
     return base / path
+
+
+def resolve_data_path(root: Path, value: str | Path) -> Path:
+    """Resolve a config path relative to the selected dataset root."""
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == root.name:
+        return root.parent.joinpath(*path.parts)
+    return root / path
 
 
 def move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
@@ -130,10 +143,11 @@ def infer_synthetic(args: argparse.Namespace, model: torch.nn.Module, device: to
         args.data_root,
         args.data_root / f'{args.split}.txt',
         passive_context=passive_context,
-        pseudo_flow_root=Path(config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None,
+        pseudo_flow_root=resolve_data_path(args.data_root, config['pseudo_flow_dir']) if config.get('pseudo_flow_dir') else None,
         active_stride=int(config.get('active_stride', 10)),
         sample_passive_context=sample_context,
         source_off_root=source_off_root,
+        require_source_off=True,
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
     scene_filter = set(args.scenes) if args.scenes else None
@@ -201,18 +215,32 @@ def source_off_path(source_off_root: Path | None, sequence: str, frame_id: int) 
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
-def load_real_frame(path: Path, device: torch.device) -> torch.Tensor:
+def load_real_array(path: Path) -> np.ndarray:
+    """Load one real frame in the canonical scale shared with Stage 1."""
     if path.suffix.lower() == '.npy':
         array = np.load(path).astype(np.float32)
         if array.ndim != 2:
             raise ValueError(f'Expected a 2-D real frame at {path}, got {array.shape}')
-        maximum = float(array.max())
-        minimum = float(array.min())
-        array = (array - minimum) / (maximum - minimum) if maximum > minimum else np.zeros_like(array, dtype=np.float32)
-    else:
-        image = Image.open(path).convert('L')
-        array = np.asarray(image, dtype=np.float32) / 255.0
+        return array
+    image = Image.open(path).convert('L')
+    return np.asarray(image, dtype=np.float32) / 255.0
+
+
+def normalise_real_array(array: np.ndarray) -> np.ndarray:
+    """Map one already-constructed input or residual to the model range."""
+    maximum = float(array.max())
+    minimum = float(array.min())
+    return (array - minimum) / (maximum - minimum) if maximum > minimum else np.zeros_like(array, dtype=np.float32)
+
+
+def tensor_from_real_array(array: np.ndarray, device: torch.device) -> torch.Tensor:
+    array = normalise_real_array(array)
     return torch.from_numpy(array).unsqueeze(0).unsqueeze(0).to(device)
+
+
+def load_real_frame(path: Path, device: torch.device) -> torch.Tensor:
+    """Load one real frame and normalize it only after its modality is selected."""
+    return tensor_from_real_array(load_real_array(path), device)
 
 
 def real_texture_anchor(
@@ -226,7 +254,8 @@ def real_texture_anchor(
     if sequence_has_modality(data_root, sequence, 'texture'):
         return load_real_frame(frame_path(data_root, sequence, frame_id, 'texture', allow_legacy=False), device)
     if sequence_has_modality(data_root, sequence, 'source_on'):
-        source_on = load_real_frame(frame_path(data_root, sequence, frame_id, 'source_on', allow_legacy=False), device)
+        source_on_path = frame_path(data_root, sequence, frame_id, 'source_on', allow_legacy=False)
+        source_on = load_real_array(source_on_path)
         source_off = source_off_path(source_off_root, sequence, frame_id)
         if source_off is None and sequence_has_modality(data_root, sequence, 'source_off'):
             source_off = frame_path(data_root, sequence, frame_id, 'source_off', allow_legacy=False)
@@ -234,12 +263,15 @@ def real_texture_anchor(
             source_off = frame_path(data_root, sequence, frame_id, 'passive', allow_legacy=False)
         if source_off is None:
             raise FileNotFoundError(f'Missing source-off frame for real texture anchor {sequence}/{frame_id:03d}')
-        return (source_on - load_real_frame(source_off, device)).clamp_min(0.0)
-    source_on = load_real_frame(frame_path(data_root, sequence, frame_id), device)
+        source_off_array = load_real_array(source_off)
+        return tensor_from_real_array(np.maximum(source_on - source_off_array, 0.0), device)
+    source_on_path = frame_path(data_root, sequence, frame_id)
+    source_on = load_real_array(source_on_path)
     source_off = source_off_path(source_off_root, sequence, frame_id)
     if source_off is not None:
-        return (source_on - load_real_frame(source_off, device)).clamp_min(0.0)
-    return source_on
+        source_off_array = load_real_array(source_off)
+        return tensor_from_real_array(np.maximum(source_on - source_off_array, 0.0), device)
+    return tensor_from_real_array(source_on, device)
 
 
 def real_samples(active_ids: list[int]) -> list[dict[str, int | float]]:
@@ -347,6 +379,14 @@ def write_outputs(output_dir: Path, rows: list[dict[str, Any]], manifest: dict[s
 
 def main() -> None:
     args = parse_args()
+    args.data_root = args.data_root.resolve()
+    args.config = args.config.resolve()
+    args.real_config = args.real_config.resolve()
+    if args.checkpoint is not None:
+        args.checkpoint = args.checkpoint.resolve()
+    if args.pretrained is not None:
+        args.pretrained = args.pretrained.resolve()
+    args.output_dir = args.output_dir.resolve()
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     model = build_model(args, device)
     if args.mode == 'synthetic':
