@@ -255,6 +255,8 @@ python -B vis.py \
   --max-frames-per-scene 5
 ```
 
+`vis.py` writes comparison PNGs and MP4 videos with an embedded caption and footnote. The caption records the model, scene, target frame, active anchor IDs, and normalized time; the footnote explains the panel order and error display.
+
 ## Code map
 
 ```text

@@ -46,6 +46,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--split', choices=['train', 'valid', 'test'], default=None)
     parser.add_argument('--output-dir', type=Path, default=None)
     parser.add_argument('--method-label', default=None)
+    parser.add_argument('--caption-prefix', default='T2exture qualitative comparison')
+    parser.add_argument(
+        '--footnote',
+        default=(
+            'Columns: active anchor 0 | active anchor 1 | prediction | target texture | absolute error. '
+            'Error uses percentile stretching for display; context is centered on the target frame.'
+        ),
+    )
     parser.add_argument('--scenes', nargs='*', default=None)
     parser.add_argument('--max-frames-per-scene', type=int, default=None)
     parser.add_argument('--panel-width', type=int, default=256)
@@ -165,6 +173,50 @@ def _compose_row(panels: list[tuple[str, Image.Image]], panel_width: int) -> Ima
     return canvas
 
 
+def _wrap_text(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+    """Wrap caption text by rendered width instead of character count."""
+    words = text.split()
+    measure = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+    lines: list[str] = []
+    current = ''
+    for word in words:
+        candidate = word if not current else f'{current} {word}'
+        if measure.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or ['']
+
+
+def _annotate_figure(image: Image.Image, caption: str, footnote: str) -> Image.Image:
+    """Add readable caption and footnote bands that remain visible in MP4 frames."""
+    caption_font = _font(24)
+    footnote_font = _font(16)
+    margin = 18
+    caption_lines = _wrap_text(caption, caption_font, image.width - 2 * margin)
+    footnote_lines = _wrap_text(footnote, footnote_font, image.width - 2 * margin)
+    caption_height = max(48, 14 + len(caption_lines) * 29)
+    footnote_height = max(44, 12 + len(footnote_lines) * 21)
+    canvas = Image.new('RGB', (image.width, caption_height + image.height + footnote_height), (22, 25, 29))
+    canvas.paste(image, (0, caption_height))
+    draw = ImageDraw.Draw(canvas)
+    y = 10
+    for line in caption_lines:
+        draw.text((margin, y), line, fill=(248, 248, 248), font=caption_font)
+        y += 29
+    footnote_top = caption_height + image.height
+    draw.line((margin, footnote_top, image.width - margin, footnote_top), fill=(92, 98, 108), width=1)
+    y = footnote_top + 8
+    for line in footnote_lines:
+        draw.text((margin, y), line, fill=(210, 215, 222), font=footnote_font)
+        y += 21
+    return canvas
+
+
 def _sample_name(row: dict[str, str]) -> str:
     """Return the stable endpoint-target filename stem for one frame row."""
     return f"{int(row['left_id']):03d}_{int(row['target_id']):03d}_{int(row['right_id']):03d}"
@@ -218,6 +270,8 @@ def _comparison_image(
     image_cmap: str,
     error_cmap: str,
     error_percentile: float,
+    caption_prefix: str,
+    footnote: str,
 ) -> Image.Image:
     """Build one visual comparison image for a frame-level eval record."""
     scene = row['scene']
@@ -231,7 +285,13 @@ def _comparison_image(
         ('GT', _load_npy_image(data_root, scene, 'texture', target_id, image_cmap)),
         ('Abs Error', _load_png(eval_dir / row['err_path'], error_cmap, error_percentile)),
     ]
-    return _compose_row(panels, panel_width)
+    comparison = _compose_row(panels, panel_width)
+    time = (target_id - left_id) / float(right_id - left_id)
+    caption = (
+        f'{caption_prefix} | {method_label} | scene={scene} | '
+        f'target={target_id:03d} | anchors=({left_id:03d}, {right_id:03d}) | t={time:.2f}'
+    )
+    return _annotate_figure(comparison, caption, footnote)
 
 
 def _write_video(path: Path, frames: list[Path], fps: int) -> None:
@@ -299,6 +359,8 @@ def main() -> None:
                 args.image_cmap,
                 args.error_cmap,
                 args.error_percentile,
+                args.caption_prefix,
+                args.footnote,
             )
             out_path = png_dir / f'{scene}_{name}_cmp.png'
             image.save(out_path)
@@ -320,6 +382,9 @@ def main() -> None:
             'error_cmap': args.error_cmap,
             'error_percentile': args.error_percentile,
         },
+        'caption_prefix': args.caption_prefix,
+        'footnote': args.footnote,
+        'column_order': ['active_anchor_0', 'active_anchor_1', 'prediction', 'target_texture', 'absolute_error'],
         'artifacts': {
             'png': 'png/',
             'scene_videos': scene_videos,
