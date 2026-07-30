@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument('--scenes', nargs='*', default=None)
+    parser.add_argument('--target-ids', nargs='*', type=int, default=None)
     parser.add_argument('--max-frames-per-scene', type=int, default=None)
     parser.add_argument('--panel-width', type=int, default=256)
     parser.add_argument('--image-cmap', choices=['gray', 'texture'], default='gray')
@@ -245,13 +246,21 @@ def _public_path(path: Path, base: Path | None = None) -> str:
         return path.as_posix()
 
 
-def _select_rows(rows: list[dict[str, str]], scenes: list[str] | None, max_frames_per_scene: int | None) -> dict[str, list[dict[str, str]]]:
+def _select_rows(
+    rows: list[dict[str, str]],
+    scenes: list[str] | None,
+    target_ids: list[int] | None,
+    max_frames_per_scene: int | None,
+) -> dict[str, list[dict[str, str]]]:
     """Group rows by scene and apply optional scene/frame filters."""
     selected: dict[str, list[dict[str, str]]] = defaultdict(list)
     scene_filter = set(scenes) if scenes else None
+    target_filter = set(target_ids) if target_ids is not None else None
     for row in rows:
         scene = row['scene']
         if scene_filter is not None and scene not in scene_filter:
+            continue
+        if target_filter is not None and int(row['target_id']) not in target_filter:
             continue
         if max_frames_per_scene is not None and len(selected[scene]) >= max_frames_per_scene:
             continue
@@ -342,7 +351,12 @@ def main() -> None:
     public_data_root = str(manifest.get('data_root') or _public_path(data_root))
     public_eval_dir = _public_path(args.eval_dir)
     method_label = args.method_label or str(manifest.get('backbone', 'T2exture'))
-    rows_by_scene = _select_rows(_read_frame_rows(args.eval_dir), args.scenes, args.max_frames_per_scene)
+    rows_by_scene = _select_rows(
+        _read_frame_rows(args.eval_dir),
+        args.scenes,
+        args.target_ids,
+        args.max_frames_per_scene,
+    )
 
     all_frames: list[Path] = []
     scene_videos: dict[str, str] = {}
@@ -377,6 +391,7 @@ def main() -> None:
         'data_root': public_data_root,
         'frames': len(all_frames),
         'scenes': {scene: len(rows) for scene, rows in rows_by_scene.items()},
+        'target_ids': args.target_ids,
         'style': {
             'image_cmap': args.image_cmap,
             'error_cmap': args.error_cmap,
