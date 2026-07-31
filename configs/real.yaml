@@ -1,0 +1,33 @@
+protocol:
+  active_anchor_ids:
+    - 1
+    - 11
+    - 21
+    - 31
+    - 41
+    - 51
+    - 61
+    - 71
+    - 81
+    - 91
+    - 101
+    - 111
+    - 121
+    - 131
+    - 141
+    - 151
+    - 161
+    - 171
+    - 180
+  passive_context: 5
+
+sequences:
+  - bag
+  - doll_01
+  - doll_02
+  - doll_03
+  - doll_04
+  - doll_05
+
+exclude_dirs:
+  - cailbr

@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from config import LossWeights
+
 
 class Loss(nn.Module):
     def __init__(self, loss_weight, keys, mapping=None) -> None:
@@ -14,7 +16,7 @@ class Loss(nn.Module):
         self.keys = keys
         self.mapping = mapping
         if isinstance(mapping, dict):
-            self.mapping = {k: v for k, v in mapping if v in keys}
+            self.mapping = {k: v for k, v in mapping.items() if v in keys}
 
     
     def forward(self, **kwargs):
@@ -38,6 +40,32 @@ class CharbonnierLoss(Loss):
         diff = imgt_pred - imgt
         loss = ((diff ** 2 + 1e-6) ** 0.5).mean()
         return loss
+
+
+class CompositeLoss(nn.Module):
+    """Combine the fixed Charbonnier, census-style CSS, and multiple-flow losses."""
+
+    def __init__(self, weights: LossWeights | dict[str, float] | None = None) -> None:
+        """Create the three approved objectives with configurable coefficients."""
+        super().__init__()
+        if not isinstance(weights, LossWeights):
+            weights = LossWeights.from_mapping(weights)
+        self.weights = weights.as_dict()
+        self.charbonnier = CharbonnierLoss(self.weights['charbonnier'], ['imgt_pred', 'imgt'])
+        self.css = TernaryLoss(self.weights['css'], ['imgt_pred', 'imgt'])
+        self.flow = MultipleFlowLoss(self.weights['flow'], ['flow0_pred', 'flow1_pred', 'flow'])
+
+    def forward(self, imgt_pred, imgt, flow0_pred, flow1_pred, flow):
+        """Return the weighted total and named weighted terms for logging."""
+        charbonnier = self.charbonnier(imgt_pred=imgt_pred, imgt=imgt)
+        css = self.css(imgt_pred=imgt_pred, imgt=imgt)
+        flow_loss = self.flow(flow0_pred=flow0_pred, flow1_pred=flow1_pred, flow=flow)
+        return {
+            'total': charbonnier + css + flow_loss,
+            'charbonnier': charbonnier,
+            'css': css,
+            'flow': flow_loss,
+        }
 
 
 class AdaCharbonnierLoss(Loss):

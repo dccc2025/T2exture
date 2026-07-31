@@ -1,1 +1,0 @@
-Both videos are 180 frames at 30 fps (6 seconds).\nAnchors: 001, 011, ..., 161, 180 (18 observed texture frames).\nAll remaining 162 frames were inferred using the matching passive frame.\n

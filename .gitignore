@@ -1,0 +1,14 @@
+# User-provided artifacts and generated results
+datasets/
+pretrained/
+outputs/
+
+# Python cache and local environment files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Platform metadata
+.DS_Store
